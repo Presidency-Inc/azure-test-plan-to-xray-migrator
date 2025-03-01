@@ -1,0 +1,6 @@
+Test Suite ,,,,,,,,,,,,
+Test Suite Name,Owner,Email,URL,Count,Automated,,,Key,Test Repository,Suite,Test Repository Folder,,
+Advisor Insights,John Doe,john.doe@example.com,https://dev.azure.com/OrgName/Project/_testPlans/define?planId=218&suiteId=4135,685,,,PROJ,Test Repository/,Advisor Insights,Test Repository/Advisor Insights,,
+Dashboard regression,Jane Smith,jane.smith@example.com,"https://dev.azure.com/OrgName/Project/_testPlans/define?planId=2010&suiteId=2021
+https://dev.azure.com/OrgName/Project/_testPlans/define?planId=2318&suiteId=2332",540,YES,,PROJ,Test Repository/,Dashboard/Regression,Test Repository/Dashboard/Regression,,
+Client Management,Bob Johnson,bob.johnson@example.com,https://dev.azure.com/OrgName/Project/_testPlans/define?planId=3042&suiteId=3100,320,NO,,PROJ,Test Repository/,Client Management,Test Repository/Client Management,, 

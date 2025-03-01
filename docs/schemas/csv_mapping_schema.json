@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CSV Mapping Schema",
+  "description": "Schema for the CSV mapping file used to extract specific test plans",
+  "type": "object",
+  "properties": {
+    "csv_data": {
+      "type": "array",
+      "description": "Array of rows from the CSV file",
+      "items": {
+        "type": "object",
+        "properties": {
+          "row_index": {
+            "type": "integer",
+            "description": "The index of the row in the CSV file (0-based)"
+          },
+          "test_suite_name": {
+            "type": "string",
+            "description": "Name of the test suite from column 1"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner of the test suite from column 2"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email of the owner from column 3"
+          },
+          "urls": {
+            "type": "array",
+            "description": "Array of Azure DevOps URLs from column 4",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "The full URL from the CSV"
+                },
+                "plan_id": {
+                  "type": "integer",
+                  "description": "The extracted plan ID from the URL"
+                },
+                "suite_id": {
+                  "type": "integer",
+                  "description": "The extracted suite ID from the URL"
+                }
+              },
+              "required": ["url", "plan_id", "suite_id"]
+            }
+          },
+          "additional_data": {
+            "type": "object",
+            "description": "Additional data from columns beyond the first 4",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["row_index", "test_suite_name", "owner", "email", "urls"]
+      }
+    },
+    "plan_suite_mapping": {
+      "type": "object",
+      "description": "Mapping of plan IDs to their suite IDs",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Metadata about the CSV file and parsing process",
+      "properties": {
+        "file_name": {
+          "type": "string",
+          "description": "Name of the parsed CSV file"
+        },
+        "parse_date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date and time when the CSV was parsed"
+        },
+        "total_rows": {
+          "type": "integer",
+          "description": "Total number of rows in the CSV file"
+        },
+        "valid_url_rows": {
+          "type": "integer",
+          "description": "Number of rows with valid Azure DevOps URLs"
+        },
+        "total_urls": {
+          "type": "integer",
+          "description": "Total number of valid URLs extracted"
+        },
+        "unique_plan_ids": {
+          "type": "integer",
+          "description": "Number of unique plan IDs extracted"
+        }
+      },
+      "required": ["file_name", "parse_date", "total_rows", "valid_url_rows", "total_urls", "unique_plan_ids"]
+    }
+  },
+  "required": ["csv_data", "plan_suite_mapping", "metadata"]
+} 
