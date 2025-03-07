@@ -8,6 +8,7 @@ class AzureDevOpsClient:
         self.config = config
         self._connection = None
         self._test_client = None
+        self._test_plan_client = None
         self._work_item_client = None
         self._git_client = None
         self.logger = logging.getLogger(__name__)
@@ -49,13 +50,41 @@ class AzureDevOpsClient:
                 if not client_method.startswith('_'):
                     self.logger.info(f"  - {client_method}")
                     
+            # First try to use the test_plan_client (newer API)
             try:
+                self.logger.info("Attempting to use test_plan_client (modern API)")
+                self._test_plan_client = self.connection.clients.get_test_plan_client()
+                self.logger.info("Successfully initialized test_plan_client")
+                # If we get here, use test_plan_client as a fallback for test_client
+                self._test_client = self._test_plan_client
+                return self._test_client
+            except Exception as tpc_error:
+                self.logger.warning(f"Failed to initialize Test Plan Client: {str(tpc_error)}")
+                # Fall back to test_client
+                pass
+                    
+            # Try the legacy test_client
+            try:
+                self.logger.info("Attempting to use test_client (legacy API)")
                 self._test_client = self.connection.clients.get_test_client()
                 self.logger.info("Azure DevOps Test Client initialized successfully")
             except Exception as e:
                 self.logger.error(f"Failed to initialize Test Client: {str(e)}")
                 raise
         return self._test_client
+    
+    @property
+    def test_plan_client(self):
+        """Get the test plan client (newer API)"""
+        if not self._test_plan_client:
+            self.logger.info("Initializing Azure DevOps Test Plan Client")
+            try:
+                self._test_plan_client = self.connection.clients.get_test_plan_client()
+                self.logger.info("Azure DevOps Test Plan Client initialized successfully")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize Test Plan Client: {str(e)}")
+                raise
+        return self._test_plan_client
     
     @property
     def work_item_client(self):
@@ -84,6 +113,16 @@ class AzureDevOpsClient:
         """Get a test plan by ID"""
         try:
             self.logger.info(f"Retrieving test plan: {plan_id} from project: {project}")
+            
+            # Try using test_plan_client first (newer API)
+            if self._test_plan_client:
+                try:
+                    self.logger.info("Using test_plan_client API")
+                    return await self._test_plan_client.get_test_plan_by_id(project, plan_id)
+                except Exception as e:
+                    self.logger.warning(f"Test plan client failed, falling back to test client: {str(e)}")
+            
+            # Fall back to test_client
             return await self.test_client.get_test_plan_by_id(project, plan_id)
         except Exception as e:
             self.logger.error(f"Error retrieving test plan {plan_id}: {str(e)}")
@@ -93,6 +132,16 @@ class AzureDevOpsClient:
         """Get a test suite by ID"""
         try:
             self.logger.info(f"Retrieving test suite: {suite_id} from plan {plan_id} in project: {project}")
+            
+            # Try using test_plan_client first (newer API)
+            if self._test_plan_client:
+                try:
+                    self.logger.info("Using test_plan_client API")
+                    return await self._test_plan_client.get_test_suite_by_id(project, plan_id, suite_id)
+                except Exception as e:
+                    self.logger.warning(f"Test plan client failed, falling back to test client: {str(e)}")
+            
+            # Fall back to test_client
             return await self.test_client.get_test_suite_by_id(project, plan_id, suite_id)
         except Exception as e:
             self.logger.error(f"Error retrieving test suite {suite_id} from plan {plan_id}: {str(e)}")
