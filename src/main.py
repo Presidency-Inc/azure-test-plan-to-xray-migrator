@@ -2,28 +2,63 @@ import os
 import asyncio
 import argparse
 import logging
+import sys
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from pathlib import Path
 from config.config import AzureConfig
 from extractors.azure_test_extractor import AzureTestExtractor
 from utils.json_utils import save_json_data
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+def setup_logging():
+    # Create logs directory if it doesn't exist
+    logs_dir = os.path.join("logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    # Generate timestamp for log filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(logs_dir, f"extraction_{timestamp}.log")
+    
+    # Set up logging configuration
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(console_formatter)
+    
+    # File handler with rotation (100 MB per file, 1000 backup files)
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=100 * 1024 * 1024,  # 100 MB
+        backupCount=1000
+    )
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(file_formatter)
+    
+    # Add handlers to root logger
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+    
+    return log_file
 
 async def main():
     try:
+        # Set up logging first
+        log_file = setup_logging()
+        
         # Parse command line arguments
         parser = argparse.ArgumentParser(description='Azure Test Plans to Xray Migration')
         parser.add_argument('--csv', help='Path to CSV file containing Azure Test Plan URLs')
         parser.add_argument('--modular', action='store_true', help='Use modular output (separate files for each test plan)')
         args = parser.parse_args()
         
+        logger = logging.getLogger(__name__)
         logger.info("Starting Azure Test Plans to Xray Migration")
+        logger.info(f"Logs will be saved to: {log_file}")
         
         # Load configuration
         config = AzureConfig()
