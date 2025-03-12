@@ -159,15 +159,19 @@ class AzureTestExtractor:
         """Extract a specific test plan with only specified suites"""
         self.logger.info(f"Extracting test plan ID: {plan_id} with specific suites: {suite_ids}")
         try:
-            # Get the plan details - remove await
+            # Get the plan details - don't use await as method is not async anymore
             plan = self.client.get_test_plan_by_id(
                 project=self.config.project_name, 
                 plan_id=plan_id
             )
             
+            if not plan:
+                self.logger.warning(f"Test plan {plan_id} not found")
+                raise ValueError(f"Test plan {plan_id} not found")
+            
             test_plan = {
-                "id": plan.id,
-                "name": plan.name,
+                "id": plan.id if hasattr(plan, 'id') else None,
+                "name": plan.name if hasattr(plan, 'name') else None,
                 "area_path": plan.area_path if hasattr(plan, 'area_path') else None,
                 "iteration_path": plan.iteration_path if hasattr(plan, 'iteration_path') else None,
                 "description": plan.description if hasattr(plan, 'description') else None,
@@ -181,6 +185,7 @@ class AzureTestExtractor:
             # Extract only specified suites
             for suite_id in suite_ids:
                 try:
+                    # Don't await this call since the method is not async anymore
                     suite = await self._extract_specific_test_suite(plan_id, suite_id)
                     if suite:
                         test_plan["test_suites"].append(suite)
@@ -196,16 +201,20 @@ class AzureTestExtractor:
         """Extract a specific test suite by ID"""
         self.logger.info(f"Extracting test suite ID: {suite_id} from plan ID: {plan_id}")
         try:
-            # Get the suite details - remove await
+            # Get the suite details - don't use await as method is not async anymore
             suite = self.client.get_test_suite_by_id(
                 project=self.config.project_name,
                 plan_id=plan_id,
                 suite_id=suite_id
             )
             
+            if not suite:
+                self.logger.warning(f"Test suite {suite_id} not found")
+                raise ValueError(f"Test suite {suite_id} not found")
+            
             test_suite = {
-                "id": suite.id,
-                "name": suite.name,
+                "id": suite.id if hasattr(suite, 'id') else None,
+                "name": suite.name if hasattr(suite, 'name') else None,
                 "parent_suite_id": suite.parent_suite.id if hasattr(suite, 'parent_suite') and suite.parent_suite else None,
                 "state": suite.state if hasattr(suite, 'state') else None,
                 "test_cases": []
@@ -214,7 +223,7 @@ class AzureTestExtractor:
             # Extract test cases for this suite
             self.logger.info(f"Extracting test cases for plan ID: {plan_id}, suite ID: {suite_id}")
             try:
-                # Get test cases - remove await
+                # Get test cases - don't await as method is not async
                 test_cases = self.client.get_test_cases(
                     project=self.config.project_name,
                     plan_id=plan_id,
@@ -223,8 +232,8 @@ class AzureTestExtractor:
                 
                 for case in test_cases:
                     test_case = {
-                        "id": case.id,
-                        "name": case.name,
+                        "id": case.id if hasattr(case, 'id') else None,
+                        "name": case.name if hasattr(case, 'name') else None,
                         "work_item_id": case.work_item.id if hasattr(case, 'work_item') and case.work_item else None,
                         "work_item_url": case.work_item.url if hasattr(case, 'work_item') and case.work_item else None,
                         "order": case.order if hasattr(case, 'order') else None,
@@ -372,15 +381,15 @@ class AzureTestExtractor:
         configurations = []
         
         try:
-            # Remove await - SDK method is not a coroutine
-            config_list = self.client.test_client.get_test_configurations(
+            # Use client method directly (not async)
+            config_list = self.client.get_test_configurations(
                 project=self.config.project_name
             )
             
             for config in config_list:
                 configuration = {
-                    "id": config.id,
-                    "name": config.name,
+                    "id": config.id if hasattr(config, 'id') else None,
+                    "name": config.name if hasattr(config, 'name') else None,
                     "description": config.description if hasattr(config, 'description') else None,
                     "state": config.state if hasattr(config, 'state') else None,
                     "values": config.values if hasattr(config, 'values') else None,
@@ -399,15 +408,15 @@ class AzureTestExtractor:
         variables = []
         
         try:
-            # Remove await - SDK method is not a coroutine
-            var_list = self.client.test_client.get_test_variables(
+            # Use client method directly (not async)
+            var_list = self.client.get_test_variables(
                 project=self.config.project_name
             )
             
             for var in var_list:
                 variable = {
-                    "id": var.id,
-                    "name": var.name,
+                    "id": var.id if hasattr(var, 'id') else None,
+                    "name": var.name if hasattr(var, 'name') else None,
                     "description": var.description if hasattr(var, 'description') else None,
                     "values": var.values if hasattr(var, 'values') else None,
                     "scope": var.scope if hasattr(var, 'scope') else None

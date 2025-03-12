@@ -101,7 +101,7 @@ class AzureDevOpsClient:
             self._git_client = self.connection.clients.get_git_client()
         return self._git_client
     
-    async def get_work_item(self, work_item_id):
+    def get_work_item(self, work_item_id):
         """Get a work item by ID"""
         try:
             self.logger.info(f"Retrieving work item: {work_item_id}")
@@ -110,7 +110,7 @@ class AzureDevOpsClient:
             self.logger.error(f"Error retrieving work item {work_item_id}: {str(e)}")
             return None
     
-    async def get_test_plan_by_id(self, project, plan_id):
+    def get_test_plan_by_id(self, project, plan_id):
         """Get a test plan by ID"""
         try:
             # Log retrieval attempt
@@ -130,7 +130,7 @@ class AzureDevOpsClient:
             self.logger.error(f"Error retrieving test plan {plan_id}: {str(e)}")
             return None
     
-    async def get_test_suite_by_id(self, project, plan_id, suite_id):
+    def get_test_suite_by_id(self, project, plan_id, suite_id):
         """Get a test suite by ID"""
         try:
             # Log retrieval attempt
@@ -158,4 +158,34 @@ class AzureDevOpsClient:
             return self.test_client.get_test_cases(project, plan_id, suite_id)
         except Exception as e:
             self.logger.error(f"Error retrieving test cases for suite {suite_id} in plan {plan_id}: {str(e)}")
+            return []
+    
+    def get_test_configurations(self, project):
+        """Get test configurations for a project"""
+        try:
+            self.logger.info(f"Retrieving test configurations for project: {project}")
+            # Use the test_client directly
+            try:
+                return self.test_client.get_test_configurations(project)
+            except AttributeError:
+                # If the method doesn't exist, return an empty list
+                self.logger.warning("get_test_configurations method not available in Azure DevOps SDK")
+                return []
+        except Exception as e:
+            self.logger.error(f"Error retrieving test configurations: {str(e)}")
+            return []
+    
+    def get_test_variables(self, project):
+        """Get test variables for a project"""
+        try:
+            self.logger.info(f"Retrieving test variables for project: {project}")
+            # Use the test_client directly
+            try:
+                return self.test_client.get_test_variables(project)
+            except AttributeError:
+                # If the method doesn't exist, return an empty list
+                self.logger.warning("get_test_variables method not available in Azure DevOps SDK")
+                return []
+        except Exception as e:
+            self.logger.error(f"Error retrieving test variables: {str(e)}")
             return [] 
