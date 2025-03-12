@@ -154,10 +154,168 @@ class AzureDevOpsClient:
         """Get test cases for a test suite"""
         try:
             self.logger.info(f"Retrieving test cases for plan {plan_id}, suite {suite_id} in project: {project}")
-            # Always use the test_client for test cases as the test_plan_client might not have this method
-            return self.test_client.get_test_cases(project, plan_id, suite_id)
+            
+            # Log the current client being used
+            self.logger.info(f"Test client type: {type(self.test_client)}")
+            
+            # First try the standard test_client method
+            try:
+                self.logger.info("Attempting to retrieve test cases using standard method")
+                test_cases = self.test_client.get_test_cases(project, plan_id, suite_id)
+                test_case_count = len(test_cases) if test_cases else 0
+                self.logger.info(f"Retrieved {test_case_count} test cases using standard method")
+                return test_cases
+            except AttributeError as ae:
+                self.logger.warning(f"Standard test case retrieval method not available: {str(ae)}")
+                
+                # Try an alternative approach - Test Plan API
+                try:
+                    self.logger.info("Attempting to retrieve test cases using test plan client")
+                    if self._test_plan_client:
+                        # Check if test plan client has get_test_cases method
+                        if hasattr(self._test_plan_client, 'get_test_cases'):
+                            test_cases = self._test_plan_client.get_test_cases(project, plan_id, suite_id)
+                            self.logger.info(f"Retrieved test cases using test plan client")
+                            return test_cases
+                        # Try get_test_case_list if available
+                        elif hasattr(self._test_plan_client, 'get_test_case_list'):
+                            self.logger.info("Trying get_test_case_list method")
+                            test_cases = self._test_plan_client.get_test_case_list(project, plan_id, suite_id)
+                            self.logger.info(f"Retrieved test cases using get_test_case_list")
+                            return test_cases
+                except Exception as e:
+                    self.logger.warning(f"Alternative test case retrieval method failed: {str(e)}")
+                    
+                # Try through suite API if available
+                try:
+                    self.logger.info("Attempting to retrieve test cases through suite API")
+                    if hasattr(self.test_client, 'get_suite_test_cases'):
+                        test_cases = self.test_client.get_suite_test_cases(project, suite_id)
+                        self.logger.info(f"Retrieved test cases using suite API")
+                        return test_cases
+                except Exception as e:
+                    self.logger.warning(f"Suite API test case retrieval method failed: {str(e)}")
+                
+                # Try using work item tracking client as a fallback
+                try:
+                    self.logger.info("Attempting to retrieve test cases using work item tracking client")
+                    test_cases = self.get_test_cases_via_work_items(project, plan_id, suite_id)
+                    if test_cases:
+                        self.logger.info(f"Retrieved test cases using work item tracking client")
+                        return test_cases
+                except Exception as e:
+                    self.logger.warning(f"Work item tracking client test case retrieval failed: {str(e)}")
+                
+                # If all methods fail, log the issue and return empty list
+                self.logger.error("All test case retrieval methods failed")
+                return []
+            
         except Exception as e:
             self.logger.error(f"Error retrieving test cases for suite {suite_id} in plan {plan_id}: {str(e)}")
+            return []
+    
+    def get_test_cases_via_work_items(self, project, plan_id, suite_id):
+        """
+        Fallback method to get test cases by querying work items
+        This is a custom implementation that simulates the structure returned by get_test_cases
+        """
+        try:
+            self.logger.info(f"Using work item tracking client to retrieve test cases for suite {suite_id}")
+            
+            # First, try to get test case IDs from either test client or test plan client
+            test_case_refs = []
+            try:
+                if hasattr(self.test_client, 'get_test_case_references'):
+                    self.logger.info("Getting test case references from test client")
+                    test_case_refs = self.test_client.get_test_case_references(project, plan_id, suite_id)
+                elif hasattr(self._test_plan_client, 'get_test_case_references'):
+                    self.logger.info("Getting test case references from test plan client")
+                    test_case_refs = self._test_plan_client.get_test_case_references(project, plan_id, suite_id)
+            except Exception as e:
+                self.logger.warning(f"Could not get test case references: {str(e)}")
+                return []
+            
+            # If we got references, extract work item IDs
+            work_item_ids = []
+            for ref in test_case_refs:
+                if hasattr(ref, 'id'):
+                    work_item_ids.append(ref.id)
+                elif hasattr(ref, 'work_item') and hasattr(ref.work_item, 'id'):
+                    work_item_ids.append(ref.work_item.id)
+            
+            if not work_item_ids:
+                self.logger.warning("No work item IDs found in test case references")
+                # Try to query for test case work items as a last resort
+                try:
+                    # WIQL query to find test cases
+                    from azure.devops.v6_0.work_item_tracking.models import Wiql
+                    wiql = Wiql(
+                        query=f"SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Test Case' AND [System.TeamProject] = '{project}'"
+                    )
+                    wiql_results = self.work_item_client.query_by_wiql(wiql).work_items
+                    work_item_ids = [int(result.id) for result in wiql_results]
+                    self.logger.info(f"Retrieved {len(work_item_ids)} potential test case work items via WIQL query")
+                except Exception as wiql_error:
+                    self.logger.warning(f"WIQL query failed: {str(wiql_error)}")
+                    return []
+            
+            # Get the work items for these IDs
+            if not work_item_ids:
+                return []
+            
+            self.logger.info(f"Retrieving {len(work_item_ids)} work items for test cases")
+            
+            # Get work items in batches to avoid exceeding API limits
+            batch_size = 100
+            all_work_items = []
+            
+            for i in range(0, len(work_item_ids), batch_size):
+                batch = work_item_ids[i:i+batch_size]
+                try:
+                    # Get work items with detailed fields
+                    work_items = self.work_item_client.get_work_items(
+                        project=project,
+                        ids=batch,
+                        expand="All"
+                    )
+                    all_work_items.extend(work_items)
+                except Exception as batch_error:
+                    self.logger.warning(f"Error retrieving batch of work items: {str(batch_error)}")
+            
+            # Convert work items to test case format
+            self.logger.info(f"Converting {len(all_work_items)} work items to test case format")
+            test_cases = []
+            for work_item in all_work_items:
+                # Only include test cases
+                if hasattr(work_item.fields, 'System.WorkItemType') and work_item.fields['System.WorkItemType'] == 'Test Case':
+                    # Create a simulated test case object
+                    from types import SimpleNamespace
+                    test_case = SimpleNamespace()
+                    test_case.id = work_item.id
+                    test_case.name = work_item.fields.get('System.Title', f"Test Case {work_item.id}")
+                    
+                    # Create a work item reference
+                    work_item_ref = SimpleNamespace()
+                    work_item_ref.id = work_item.id
+                    work_item_ref.url = work_item.url if hasattr(work_item, 'url') else None
+                    
+                    # Attach work item reference to test case
+                    test_case.work_item = work_item_ref
+                    
+                    # Add any other available properties
+                    if 'Microsoft.VSTS.Common.Priority' in work_item.fields:
+                        test_case.priority = work_item.fields['Microsoft.VSTS.Common.Priority']
+                    
+                    if 'System.Description' in work_item.fields:
+                        test_case.description = work_item.fields['System.Description']
+                    
+                    test_cases.append(test_case)
+            
+            self.logger.info(f"Successfully created {len(test_cases)} test case objects from work items")
+            return test_cases
+        
+        except Exception as e:
+            self.logger.error(f"Error in get_test_cases_via_work_items: {str(e)}")
             return []
     
     def get_test_configurations(self, project):

@@ -230,24 +230,67 @@ class AzureTestExtractor:
                     suite_id=suite_id
                 )
                 
+                # Log the raw test cases response
+                self.logger.info(f"Received {len(test_cases) if test_cases else 0} test cases for suite {suite_id}")
+                if not test_cases or len(test_cases) == 0:
+                    self.logger.warning(f"No test cases found for suite {suite_id} in plan {plan_id}")
+                else:
+                    # Log first test case structure for debugging
+                    first_case = test_cases[0]
+                    self.logger.info(f"First test case structure: {type(first_case)}")
+                    self.logger.info(f"First test case attributes: {dir(first_case)}")
+                    
+                    # Try to log some key attributes if they exist
+                    if hasattr(first_case, 'id'):
+                        self.logger.info(f"First test case ID: {first_case.id}")
+                    if hasattr(first_case, 'name'):
+                        self.logger.info(f"First test case name: {first_case.name}")
+                    if hasattr(first_case, 'work_item'):
+                        self.logger.info(f"First test case work item: {first_case.work_item}")
+                        if hasattr(first_case.work_item, 'id'):
+                            self.logger.info(f"First test case work item ID: {first_case.work_item.id}")
+                
+                # Process each test case
                 for case in test_cases:
+                    # Log the complete case object for debugging
+                    self.logger.info(f"Processing test case: {case}")
+                    
+                    # Extract work item details safely
+                    work_item_id = None
+                    work_item_url = None
+                    if hasattr(case, 'work_item') and case.work_item:
+                        work_item_id = case.work_item.id if hasattr(case.work_item, 'id') else None
+                        work_item_url = case.work_item.url if hasattr(case.work_item, 'url') else None
+                    
+                    # Create test case with detailed logging
                     test_case = {
                         "id": case.id if hasattr(case, 'id') else None,
                         "name": case.name if hasattr(case, 'name') else None,
-                        "work_item_id": case.work_item.id if hasattr(case, 'work_item') and case.work_item else None,
-                        "work_item_url": case.work_item.url if hasattr(case, 'work_item') and case.work_item else None,
+                        "work_item_id": work_item_id,
+                        "work_item_url": work_item_url,
                         "order": case.order if hasattr(case, 'order') else None,
                         "priority": case.priority if hasattr(case, 'priority') else None,
                         "description": case.description if hasattr(case, 'description') else None,
-                        "steps": await self._extract_test_steps(case.id if hasattr(case, 'id') else None)
                     }
+                    
+                    # Log the test case data we've extracted
+                    self.logger.info(f"Extracted test case data: {test_case}")
+                    
+                    # Extract test steps if the case has an ID
+                    case_id = case.id if hasattr(case, 'id') else None
+                    if case_id:
+                        test_case["steps"] = await self._extract_test_steps(case_id)
+                    else:
+                        self.logger.warning(f"Test case has no ID, skipping steps extraction")
+                        test_case["steps"] = []
+                    
                     test_suite["test_cases"].append(test_case)
             except Exception as e:
-                self.logger.error(f"Error extracting test cases for suite {suite_id} from plan {plan_id}: {str(e)}")
+                self.logger.error(f"Error extracting test cases for suite {suite_id} from plan {plan_id}: {str(e)}", exc_info=True)
             
             return test_suite
         except Exception as e:
-            self.logger.error(f"Error extracting test suite {suite_id} from plan {plan_id}: {str(e)}")
+            self.logger.error(f"Error extracting test suite {suite_id} from plan {plan_id}: {str(e)}", exc_info=True)
             raise
         
     async def _extract_test_steps(self, test_case_id: int) -> List[Dict]:
