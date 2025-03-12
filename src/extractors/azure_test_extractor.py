@@ -266,8 +266,8 @@ class AzureTestExtractor:
         self.logger.info("Extracting test plans")
         test_plans = []
         
-        # Get all test plans
-        plans = await self.client.test_client.get_test_plans(
+        # Get all test plans - remove await
+        plans = self.client.test_client.get_test_plans(
             project=self.config.project_name
         )
         
@@ -300,7 +300,8 @@ class AzureTestExtractor:
         self.logger.info(f"Extracting test suites for plan ID: {plan_id}")
         suites = []
         
-        plan_suites = await self.client.test_client.get_test_suites(
+        # Remove await
+        plan_suites = self.client.test_client.get_test_suites(
             project=self.config.project_name,
             plan_id=plan_id
         )
@@ -329,7 +330,8 @@ class AzureTestExtractor:
         self.logger.info(f"Extracting test cases for plan ID: {plan_id}, suite ID: {suite_id}")
         test_cases = []
         
-        suite_test_cases = await self.client.test_client.get_test_cases(
+        # Remove await
+        suite_test_cases = self.client.test_client.get_test_cases(
             project=self.config.project_name,
             plan_id=plan_id,
             suite_id=suite_id
@@ -357,7 +359,8 @@ class AzureTestExtractor:
         steps = []
         
         try:
-            test_steps = await self.client.test_client.get_test_steps(
+            # Remove await
+            test_steps = self.client.test_client.get_test_steps(
                 project=self.config.project_name,
                 test_case_id=test_case_id
             )
@@ -385,7 +388,8 @@ class AzureTestExtractor:
         configurations = []
         
         try:
-            config_list = await self.client.test_client.get_test_configurations(
+            # Remove await - SDK method is not a coroutine
+            config_list = self.client.test_client.get_test_configurations(
                 project=self.config.project_name
             )
             
@@ -411,7 +415,8 @@ class AzureTestExtractor:
         variables = []
         
         try:
-            var_list = await self.client.test_client.get_test_variables(
+            # Remove await - SDK method is not a coroutine
+            var_list = self.client.test_client.get_test_variables(
                 project=self.config.project_name
             )
             
@@ -435,15 +440,16 @@ class AzureTestExtractor:
         points = []
         
         try:
-            # Get all suites for this plan
-            suites = await self.client.test_client.get_test_suites(
+            # Get all suites for this plan - remove await
+            suites = self.client.test_client.get_test_suites(
                 project=self.config.project_name,
                 plan_id=plan_id
             )
             
             # For each suite, get the test points
             for suite in suites:
-                suite_points = await self.client.test_client.get_points(
+                # Remove await
+                suite_points = self.client.test_client.get_points(
                     project=self.config.project_name,
                     plan_id=plan_id,
                     suite_id=suite.id
@@ -474,7 +480,8 @@ class AzureTestExtractor:
         results = []
         
         try:
-            test_results = await self.client.test_client.get_test_results(
+            # Remove await
+            test_results = self.client.test_client.get_test_results(
                 project=self.config.project_name,
                 point_ids=[point_id]
             )

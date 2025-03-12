@@ -104,7 +104,7 @@ class AzureDevOpsClient:
         """Get a work item by ID"""
         try:
             self.logger.info(f"Retrieving work item: {work_item_id}")
-            return await self.work_item_client.get_work_item(work_item_id, self.config.project_name)
+            return self.work_item_client.get_work_item(work_item_id, self.config.project_name)
         except Exception as e:
             self.logger.error(f"Error retrieving work item {work_item_id}: {str(e)}")
             return None
