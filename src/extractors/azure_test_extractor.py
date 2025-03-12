@@ -155,111 +155,124 @@ class AzureTestExtractor:
             
         return extraction_result
         
-    async def _extract_specific_test_plan(self, plan_id: int, suite_ids: List[int]) -> Optional[Dict]:
-        """
-        Extract a specific test plan with only the specified suites
-        
-        Args:
-            plan_id: ID of the test plan to extract
-            suite_ids: List of suite IDs to extract from this plan
-            
-        Returns:
-            Dictionary containing test plan data or None if plan not found
-        """
+    async def _extract_specific_test_plan(self, plan_id: int, suite_ids: List[int]) -> Dict:
+        """Extract a specific test plan with only specified suites"""
         self.logger.info(f"Extracting test plan ID: {plan_id} with specific suites: {suite_ids}")
-        
         try:
-            # Get the test plan - remove await as the SDK method is not a coroutine
+            # Get the plan details - remove await
             plan = self.client.get_test_plan_by_id(
-                project=self.config.project_name,
+                project=self.config.project_name, 
                 plan_id=plan_id
             )
             
-            if not plan:
-                self.logger.warning(f"Test plan ID {plan_id} not found")
-                return None
-            
-            # Extract only the specified suites
-            test_suites = []
-            for suite_id in suite_ids:
-                suite = await self._extract_specific_test_suite(plan_id, suite_id)
-                if suite:
-                    test_suites.append(suite)
-            
-            # Create test plan dictionary
             test_plan = {
                 "id": plan.id,
                 "name": plan.name,
-                "area_path": plan.area_path,
-                "iteration_path": plan.iteration_path,
-                "description": plan.description,
-                "start_date": plan.start_date,
-                "end_date": plan.end_date,
-                "state": plan.state,
-                "owner": self._extract_identity_ref(plan.owner) if hasattr(plan, 'owner') else None,
-                "revision": plan.revision if hasattr(plan, 'revision') else None,
-                "build_id": plan.build_id if hasattr(plan, 'build_id') else None,
-                "build_definition": self._extract_build_definition_ref(plan.build_definition) if hasattr(plan, 'build_definition') else None,
-                "release_environment_definition": self._extract_release_env_def(plan.release_environment_definition) if hasattr(plan, 'release_environment_definition') else None,
-                "test_outcome_settings": plan.test_outcome_settings.sync_outcome_across_suites if hasattr(plan, 'test_outcome_settings') else None,
-                "updated_date": plan.updated_date if hasattr(plan, 'updated_date') else None,
-                "updated_by": self._extract_identity_ref(plan.updated_by) if hasattr(plan, 'updated_by') else None,
-                "test_suites": test_suites
+                "area_path": plan.area_path if hasattr(plan, 'area_path') else None,
+                "iteration_path": plan.iteration_path if hasattr(plan, 'iteration_path') else None,
+                "description": plan.description if hasattr(plan, 'description') else None,
+                "start_date": plan.start_date if hasattr(plan, 'start_date') else None,
+                "end_date": plan.end_date if hasattr(plan, 'end_date') else None,
+                "state": plan.state if hasattr(plan, 'state') else None,
+                "owner": self._extract_identity_ref(plan.owner) if hasattr(plan, 'owner') and plan.owner else None,
+                "test_suites": []
             }
             
+            # Extract only specified suites
+            for suite_id in suite_ids:
+                try:
+                    suite = await self._extract_specific_test_suite(plan_id, suite_id)
+                    if suite:
+                        test_plan["test_suites"].append(suite)
+                except Exception as e:
+                    self.logger.error(f"Error extracting test suite {suite_id} from plan {plan_id}: {str(e)}")
+                
             return test_plan
         except Exception as e:
             self.logger.error(f"Error extracting test plan {plan_id}: {str(e)}")
-            return None
-            
-    async def _extract_specific_test_suite(self, plan_id: int, suite_id: int) -> Optional[Dict]:
-        """
-        Extract a specific test suite
-        
-        Args:
-            plan_id: ID of the test plan containing the suite
-            suite_id: ID of the test suite to extract
-            
-        Returns:
-            Dictionary containing test suite data or None if suite not found
-        """
+            raise
+
+    async def _extract_specific_test_suite(self, plan_id: int, suite_id: int) -> Dict:
+        """Extract a specific test suite by ID"""
         self.logger.info(f"Extracting test suite ID: {suite_id} from plan ID: {plan_id}")
-        
         try:
-            # Get the test suite - remove await as the SDK method is not a coroutine
+            # Get the suite details - remove await
             suite = self.client.get_test_suite_by_id(
                 project=self.config.project_name,
                 plan_id=plan_id,
                 suite_id=suite_id
             )
             
-            if not suite:
-                self.logger.warning(f"Test suite ID {suite_id} not found in plan {plan_id}")
-                return None
-                
-            # Extract test cases for this suite
-            test_cases = await self._extract_test_cases(plan_id, suite_id)
-            
-            # Create test suite dictionary
             test_suite = {
                 "id": suite.id,
                 "name": suite.name,
                 "parent_suite_id": suite.parent_suite.id if hasattr(suite, 'parent_suite') and suite.parent_suite else None,
-                "default_configurations": self._extract_test_configurations_refs(suite.default_configurations) if hasattr(suite, 'default_configurations') else None,
-                "inherit_default_configurations": suite.inherit_default_configurations if hasattr(suite, 'inherit_default_configurations') else True,
                 "state": suite.state if hasattr(suite, 'state') else None,
-                "last_updated_by": self._extract_identity_ref(suite.last_updated_by) if hasattr(suite, 'last_updated_by') else None,
-                "last_updated_date": suite.last_updated_date if hasattr(suite, 'last_updated_date') else None,
-                "suite_type": suite.suite_type if hasattr(suite, 'suite_type') else None,
-                "requirement_id": suite.requirement_id if hasattr(suite, 'requirement_id') else None,
-                "query_string": suite.query_string if hasattr(suite, 'query_string') else None,
-                "test_cases": test_cases
+                "test_cases": []
             }
+            
+            # Extract test cases for this suite
+            self.logger.info(f"Extracting test cases for plan ID: {plan_id}, suite ID: {suite_id}")
+            try:
+                # Get test cases - remove await
+                test_cases = self.client.get_test_cases(
+                    project=self.config.project_name,
+                    plan_id=plan_id,
+                    suite_id=suite_id
+                )
+                
+                for case in test_cases:
+                    test_case = {
+                        "id": case.id,
+                        "name": case.name,
+                        "work_item_id": case.work_item.id if hasattr(case, 'work_item') and case.work_item else None,
+                        "work_item_url": case.work_item.url if hasattr(case, 'work_item') and case.work_item else None,
+                        "order": case.order if hasattr(case, 'order') else None,
+                        "priority": case.priority if hasattr(case, 'priority') else None,
+                        "description": case.description if hasattr(case, 'description') else None,
+                        "steps": await self._extract_test_steps(case.id if hasattr(case, 'id') else None)
+                    }
+                    test_suite["test_cases"].append(test_case)
+            except Exception as e:
+                self.logger.error(f"Error extracting test cases for suite {suite_id} from plan {plan_id}: {str(e)}")
             
             return test_suite
         except Exception as e:
             self.logger.error(f"Error extracting test suite {suite_id} from plan {plan_id}: {str(e)}")
-            return None
+            raise
+        
+    async def _extract_test_steps(self, test_case_id: int) -> List[Dict]:
+        """Extract all test steps for a given test case"""
+        if not test_case_id:
+            self.logger.warning(f"No test case ID provided, skipping test steps extraction")
+            return []
+        
+        self.logger.info(f"Extracting test steps for test case ID: {test_case_id}")
+        steps = []
+        
+        try:
+            # Use client directly without await
+            test_steps = self.client.test_client.get_test_steps(
+                project=self.config.project_name,
+                test_case_id=test_case_id
+            )
+            
+            for step in test_steps:
+                test_step = {
+                    "id": step.id,
+                    "action": step.action if hasattr(step, 'action') else None,
+                    "expected_result": step.expected_result if hasattr(step, 'expected_result') else None,
+                    "step_identifier": step.step_identifier if hasattr(step, 'step_identifier') else None,
+                    "parameters": step.parameters if hasattr(step, 'parameters') else None,
+                    "data": step.data if hasattr(step, 'data') else None,
+                    "title": step.title if hasattr(step, 'title') else None,
+                    "parameters_string": step.parameters_string if hasattr(step, 'parameters_string') else None
+                }
+                steps.append(test_step)
+        except Exception as e:
+            self.logger.warning(f"Error extracting test steps for test case {test_case_id}: {str(e)}")
+        
+        return steps
     
     async def extract_test_plans(self) -> List[Dict]:
         """Extract all test plans with their hierarchical data"""
@@ -347,40 +360,11 @@ class AzureTestExtractor:
                 "point_assignments": self._extract_point_assignments(case.point_assignments) if hasattr(case, 'point_assignments') else None,
                 "priority": case.priority if hasattr(case, 'priority') else None,
                 "description": case.description if hasattr(case, 'description') else None,
-                "steps": await self._extract_test_steps(case.id)
+                "steps": await self._extract_test_steps(case.id if hasattr(case, 'id') else None)
             }
             test_cases.append(test_case)
             
         return test_cases
-    
-    async def _extract_test_steps(self, test_case_id: int) -> List[Dict]:
-        """Extract all test steps for a given test case"""
-        self.logger.info(f"Extracting test steps for test case ID: {test_case_id}")
-        steps = []
-        
-        try:
-            # Remove await
-            test_steps = self.client.test_client.get_test_steps(
-                project=self.config.project_name,
-                test_case_id=test_case_id
-            )
-            
-            for step in test_steps:
-                test_step = {
-                    "id": step.id,
-                    "action": step.action,
-                    "expected_result": step.expected_result,
-                    "step_identifier": step.step_identifier if hasattr(step, 'step_identifier') else None,
-                    "parameters": step.parameters if hasattr(step, 'parameters') else None,
-                    "data": step.data if hasattr(step, 'data') else None,
-                    "title": step.title if hasattr(step, 'title') else None,
-                    "parameters_string": step.parameters_string if hasattr(step, 'parameters_string') else None
-                }
-                steps.append(test_step)
-        except Exception as e:
-            self.logger.warning(f"Error extracting test steps for test case {test_case_id}: {str(e)}")
-            
-        return steps
     
     async def extract_test_configurations(self) -> List[Dict]:
         """Extract all test configurations"""

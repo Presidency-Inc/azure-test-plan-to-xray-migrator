@@ -56,7 +56,8 @@ class AzureDevOpsClient:
                 self._test_plan_client = self.connection.clients.get_test_plan_client()
                 self.logger.info("Successfully initialized test_plan_client")
                 # If we get here, use test_plan_client as a fallback for test_client
-                self._test_client = self._test_plan_client
+                self._test_client = self.connection.clients.get_test_client()
+                self.logger.info("Also initialized test_client for legacy API operations")
                 return self._test_client
             except Exception as tpc_error:
                 self.logger.warning(f"Failed to initialize Test Plan Client: {str(tpc_error)}")
@@ -112,10 +113,8 @@ class AzureDevOpsClient:
     async def get_test_plan_by_id(self, project, plan_id):
         """Get a test plan by ID"""
         try:
-            # Construct and log the API endpoint URL for debugging
-            api_url = f"{self.config.organization_url}/{project}/_apis/testplan/plans/{plan_id}"
+            # Log retrieval attempt
             self.logger.info(f"Retrieving test plan: {plan_id} from project: {project}")
-            self.logger.info(f"API endpoint URL: {api_url}")
             
             # Try using test_plan_client first (newer API)
             if self._test_plan_client:
@@ -134,10 +133,8 @@ class AzureDevOpsClient:
     async def get_test_suite_by_id(self, project, plan_id, suite_id):
         """Get a test suite by ID"""
         try:
-            # Construct and log the API endpoint URL for debugging
-            api_url = f"{self.config.organization_url}/{project}/_apis/testplan/plans/{plan_id}/suites/{suite_id}"
+            # Log retrieval attempt
             self.logger.info(f"Retrieving test suite: {suite_id} from plan {plan_id} in project: {project}")
-            self.logger.info(f"API endpoint URL: {api_url}")
             
             # Try using test_plan_client first (newer API)
             if self._test_plan_client:
@@ -151,4 +148,14 @@ class AzureDevOpsClient:
             return self.test_client.get_test_suite_by_id(project, plan_id, suite_id)
         except Exception as e:
             self.logger.error(f"Error retrieving test suite {suite_id} from plan {plan_id}: {str(e)}")
-            return None 
+            return None
+    
+    def get_test_cases(self, project, plan_id, suite_id):
+        """Get test cases for a test suite"""
+        try:
+            self.logger.info(f"Retrieving test cases for plan {plan_id}, suite {suite_id} in project: {project}")
+            # Always use the test_client for test cases as the test_plan_client might not have this method
+            return self.test_client.get_test_cases(project, plan_id, suite_id)
+        except Exception as e:
+            self.logger.error(f"Error retrieving test cases for suite {suite_id} in plan {plan_id}: {str(e)}")
+            return [] 
