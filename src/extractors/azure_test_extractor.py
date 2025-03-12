@@ -169,6 +169,18 @@ class AzureTestExtractor:
                 self.logger.warning(f"Test plan {plan_id} not found")
                 raise ValueError(f"Test plan {plan_id} not found")
             
+            # Get the complete suite hierarchy to properly handle nested suites
+            suite_hierarchy = self.client.get_test_suite_hierarchy(
+                project=self.config.project_name,
+                plan_id=plan_id
+            )
+            
+            # Log all suites in the hierarchy
+            self.logger.info(f"Found {len(suite_hierarchy)} suites in plan {plan_id}")
+            for suite_id, suite in suite_hierarchy.items():
+                parent_id = suite.parent_suite.id if hasattr(suite, 'parent_suite') and suite.parent_suite else None
+                self.logger.info(f"Suite {suite_id} (Name: {suite.name}) - Parent: {parent_id}")
+            
             test_plan = {
                 "id": plan.id if hasattr(plan, 'id') else None,
                 "name": plan.name if hasattr(plan, 'name') else None,
@@ -182,23 +194,193 @@ class AzureTestExtractor:
                 "test_suites": []
             }
             
-            # Extract only specified suites
-            for suite_id in suite_ids:
-                try:
-                    # Don't await this call since the method is not async anymore
-                    suite = await self._extract_specific_test_suite(plan_id, suite_id)
-                    if suite:
-                        test_plan["test_suites"].append(suite)
-                except Exception as e:
-                    self.logger.error(f"Error extracting test suite {suite_id} from plan {plan_id}: {str(e)}")
+            # Find the root suite first (it will not have a parent_suite or have plan_id as parent)
+            root_suite_id = None
+            for suite_id, suite in suite_hierarchy.items():
+                parent_id = suite.parent_suite.id if hasattr(suite, 'parent_suite') and suite.parent_suite else None
+                if parent_id is None or parent_id == plan_id:
+                    root_suite_id = suite_id
+                    break
+                
+            if root_suite_id:
+                self.logger.info(f"Found root suite ID: {root_suite_id}")
+                # First extract the root suite with all its hierarchy
+                root_suite = await self._extract_suite_with_hierarchy(
+                    plan_id, 
+                    root_suite_id, 
+                    suite_hierarchy, 
+                    include_all_suites=False, 
+                    specific_suites=suite_ids
+                )
+                
+                if root_suite:
+                    test_plan["test_suites"].append(root_suite)
+            else:
+                # No root suite found, try to extract the specified suites directly
+                self.logger.warning(f"No root suite found for plan {plan_id}, extracting specified suites directly")
+                for suite_id in suite_ids:
+                    try:
+                        suite = await self._extract_specific_test_suite(plan_id, suite_id)
+                        if suite:
+                            test_plan["test_suites"].append(suite)
+                    except Exception as e:
+                        self.logger.error(f"Error extracting test suite {suite_id} from plan {plan_id}: {str(e)}")
                 
             return test_plan
         except Exception as e:
             self.logger.error(f"Error extracting test plan {plan_id}: {str(e)}")
             raise
 
+    async def _extract_suite_with_hierarchy(self, plan_id: int, suite_id: int, suite_hierarchy: Dict, include_all_suites: bool = True, specific_suites: List[int] = None) -> Optional[Dict]:
+        """
+        Extract a test suite with all its nested suites
+        
+        Args:
+            plan_id: The plan ID
+            suite_id: The suite ID to extract
+            suite_hierarchy: Dictionary of all suites in the plan
+            include_all_suites: If True, include all nested suites; if False, only include specific suites
+            specific_suites: List of suite IDs to include (used when include_all_suites is False)
+            
+        Returns:
+            Dictionary containing suite data with nested suites
+        """
+        self.logger.info(f"Extracting suite {suite_id} with hierarchy, include_all={include_all_suites}, specific_suites={specific_suites}")
+        
+        # Get the suite details
+        try:
+            # Use the suite from the hierarchy if available
+            if suite_id in suite_hierarchy:
+                suite = suite_hierarchy[suite_id]
+            else:
+                # Fetch the suite directly if not in hierarchy
+                suite = self.client.get_test_suite_by_id(
+                    project=self.config.project_name,
+                    plan_id=plan_id,
+                    suite_id=suite_id
+                )
+                
+            if not suite:
+                self.logger.warning(f"Suite {suite_id} not found")
+                return None
+            
+            # Create suite dictionary
+            test_suite = {
+                "id": suite.id if hasattr(suite, 'id') else None,
+                "name": suite.name if hasattr(suite, 'name') else None,
+                "parent_suite_id": suite.parent_suite.id if hasattr(suite, 'parent_suite') and suite.parent_suite else None,
+                "state": suite.state if hasattr(suite, 'state') else None,
+                "suite_type": suite.suite_type if hasattr(suite, 'suite_type') else None,
+                "test_cases": [],
+                "child_suites": []
+            }
+            
+            # Extract test cases for this suite if it's in the specific_suites list or we're including all suites
+            should_extract_test_cases = include_all_suites or (specific_suites and suite_id in specific_suites)
+            
+            if should_extract_test_cases:
+                self.logger.info(f"Extracting test cases for suite {suite_id}")
+                test_suite["test_cases"] = await self._extract_test_cases_for_suite(plan_id, suite_id)
+            else:
+                self.logger.info(f"Skipping test case extraction for suite {suite_id}")
+            
+            # Find child suites
+            child_suite_ids = []
+            for child_id, child_suite in suite_hierarchy.items():
+                parent_id = child_suite.parent_suite.id if hasattr(child_suite, 'parent_suite') and child_suite.parent_suite else None
+                if parent_id == suite_id:
+                    child_suite_ids.append(child_id)
+                
+            # Extract child suites recursively
+            for child_id in child_suite_ids:
+                # If we're including all suites or this child is in the specific suites list, extract it
+                if include_all_suites or (specific_suites and child_id in specific_suites):
+                    child_suite = await self._extract_suite_with_hierarchy(
+                        plan_id, 
+                        child_id, 
+                        suite_hierarchy, 
+                        include_all_suites, 
+                        specific_suites
+                    )
+                    if child_suite:
+                        test_suite["child_suites"].append(child_suite)
+                    
+            return test_suite
+        except Exception as e:
+            self.logger.error(f"Error extracting suite {suite_id} with hierarchy: {str(e)}")
+            return None
+
+    async def _extract_test_cases_for_suite(self, plan_id: int, suite_id: int) -> List[Dict]:
+        """Extract test cases for a specific suite"""
+        self.logger.info(f"Extracting test cases for plan ID: {plan_id}, suite ID: {suite_id}")
+        test_cases = []
+        
+        try:
+            # Get test cases
+            suite_test_cases = self.client.get_test_cases(
+                project=self.config.project_name,
+                plan_id=plan_id,
+                suite_id=suite_id
+            )
+            
+            # Log the number of test cases found
+            test_case_count = len(suite_test_cases) if suite_test_cases else 0
+            self.logger.info(f"Found {test_case_count} test cases for suite {suite_id}")
+            
+            if not suite_test_cases:
+                return []
+            
+            # Process each test case
+            for case in suite_test_cases:
+                # Log the test case details for debugging
+                self.logger.info(f"Processing test case ID: {case.id if hasattr(case, 'id') else 'Unknown'}")
+                self.logger.info(f"Test case attributes: {dir(case)}")
+                
+                # Extract work item details safely
+                work_item_id = None
+                work_item_url = None
+                if hasattr(case, 'work_item') and case.work_item:
+                    work_item_id = case.work_item.id if hasattr(case.work_item, 'id') else None
+                    work_item_url = case.work_item.url if hasattr(case.work_item, 'url') else None
+                
+                # Create test case dictionary with all available attributes
+                test_case = {
+                    "id": case.id if hasattr(case, 'id') else None,
+                    "name": case.name if hasattr(case, 'name') else None,
+                    "work_item_id": work_item_id,
+                    "work_item_url": work_item_url,
+                    "order": case.order if hasattr(case, 'order') else None,
+                    "priority": case.priority if hasattr(case, 'priority') else None,
+                    "description": case.description if hasattr(case, 'description') else None,
+                }
+                
+                # Extract additional fields if available
+                if hasattr(case, 'steps_html'):
+                    test_case["steps_html"] = case.steps_html
+                elif hasattr(case, 'steps'):
+                    test_case["steps"] = case.steps
+                    
+                # Extract acceptance criteria if available
+                if hasattr(case, 'acceptance_criteria'):
+                    test_case["acceptance_criteria"] = case.acceptance_criteria
+                
+                # Extract test steps if case has an ID
+                case_id = case.id if hasattr(case, 'id') else None
+                if case_id:
+                    steps = await self._extract_test_steps(case_id)
+                    test_case["steps"] = steps
+                else:
+                    test_case["steps"] = []
+                    
+                # Add the test case to the list
+                test_cases.append(test_case)
+        except Exception as e:
+            self.logger.error(f"Error extracting test cases for suite {suite_id} from plan {plan_id}: {str(e)}", exc_info=True)
+        
+        return test_cases
+
     async def _extract_specific_test_suite(self, plan_id: int, suite_id: int) -> Dict:
-        """Extract a specific test suite by ID"""
+        """Extract a specific test suite by ID (without hierarchy)"""
         self.logger.info(f"Extracting test suite ID: {suite_id} from plan ID: {plan_id}")
         try:
             # Get the suite details - don't use await as method is not async anymore
@@ -217,76 +399,9 @@ class AzureTestExtractor:
                 "name": suite.name if hasattr(suite, 'name') else None,
                 "parent_suite_id": suite.parent_suite.id if hasattr(suite, 'parent_suite') and suite.parent_suite else None,
                 "state": suite.state if hasattr(suite, 'state') else None,
-                "test_cases": []
+                "test_cases": await self._extract_test_cases_for_suite(plan_id, suite_id),
+                "child_suites": []  # When using this method directly, we don't extract child suites
             }
-            
-            # Extract test cases for this suite
-            self.logger.info(f"Extracting test cases for plan ID: {plan_id}, suite ID: {suite_id}")
-            try:
-                # Get test cases - don't await as method is not async
-                test_cases = self.client.get_test_cases(
-                    project=self.config.project_name,
-                    plan_id=plan_id,
-                    suite_id=suite_id
-                )
-                
-                # Log the raw test cases response
-                self.logger.info(f"Received {len(test_cases) if test_cases else 0} test cases for suite {suite_id}")
-                if not test_cases or len(test_cases) == 0:
-                    self.logger.warning(f"No test cases found for suite {suite_id} in plan {plan_id}")
-                else:
-                    # Log first test case structure for debugging
-                    first_case = test_cases[0]
-                    self.logger.info(f"First test case structure: {type(first_case)}")
-                    self.logger.info(f"First test case attributes: {dir(first_case)}")
-                    
-                    # Try to log some key attributes if they exist
-                    if hasattr(first_case, 'id'):
-                        self.logger.info(f"First test case ID: {first_case.id}")
-                    if hasattr(first_case, 'name'):
-                        self.logger.info(f"First test case name: {first_case.name}")
-                    if hasattr(first_case, 'work_item'):
-                        self.logger.info(f"First test case work item: {first_case.work_item}")
-                        if hasattr(first_case.work_item, 'id'):
-                            self.logger.info(f"First test case work item ID: {first_case.work_item.id}")
-                
-                # Process each test case
-                for case in test_cases:
-                    # Log the complete case object for debugging
-                    self.logger.info(f"Processing test case: {case}")
-                    
-                    # Extract work item details safely
-                    work_item_id = None
-                    work_item_url = None
-                    if hasattr(case, 'work_item') and case.work_item:
-                        work_item_id = case.work_item.id if hasattr(case.work_item, 'id') else None
-                        work_item_url = case.work_item.url if hasattr(case.work_item, 'url') else None
-                    
-                    # Create test case with detailed logging
-                    test_case = {
-                        "id": case.id if hasattr(case, 'id') else None,
-                        "name": case.name if hasattr(case, 'name') else None,
-                        "work_item_id": work_item_id,
-                        "work_item_url": work_item_url,
-                        "order": case.order if hasattr(case, 'order') else None,
-                        "priority": case.priority if hasattr(case, 'priority') else None,
-                        "description": case.description if hasattr(case, 'description') else None,
-                    }
-                    
-                    # Log the test case data we've extracted
-                    self.logger.info(f"Extracted test case data: {test_case}")
-                    
-                    # Extract test steps if the case has an ID
-                    case_id = case.id if hasattr(case, 'id') else None
-                    if case_id:
-                        test_case["steps"] = await self._extract_test_steps(case_id)
-                    else:
-                        self.logger.warning(f"Test case has no ID, skipping steps extraction")
-                        test_case["steps"] = []
-                    
-                    test_suite["test_cases"].append(test_case)
-            except Exception as e:
-                self.logger.error(f"Error extracting test cases for suite {suite_id} from plan {plan_id}: {str(e)}", exc_info=True)
             
             return test_suite
         except Exception as e:
