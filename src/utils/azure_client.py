@@ -35,6 +35,11 @@ class AzureDevOpsClient:
                     creds=credentials
                 )
                 self.logger.info("Connected to Azure DevOps successfully")
+                # Log the actual resource area endpoints being used
+                self.logger.info("Azure DevOps API endpoints:")
+                for resource_area_id, location in self._connection._client.config.resource_area_location.items():
+                    resource_name = getattr(self._connection._client.config, f"resource_area_{resource_area_id}", "Unknown")
+                    self.logger.info(f"  {resource_name} ({resource_area_id}): {location}")
             except Exception as e:
                 self.logger.error(f"Failed to connect to Azure DevOps: {str(e)}")
                 raise
@@ -112,7 +117,10 @@ class AzureDevOpsClient:
     async def get_test_plan_by_id(self, project, plan_id):
         """Get a test plan by ID"""
         try:
+            # Construct and log the API endpoint URL for debugging
+            api_url = f"{self.config.organization_url}/{project}/_apis/testplan/plans/{plan_id}"
             self.logger.info(f"Retrieving test plan: {plan_id} from project: {project}")
+            self.logger.info(f"API endpoint URL: {api_url}")
             
             # Try using test_plan_client first (newer API)
             if self._test_plan_client:
@@ -131,7 +139,10 @@ class AzureDevOpsClient:
     async def get_test_suite_by_id(self, project, plan_id, suite_id):
         """Get a test suite by ID"""
         try:
+            # Construct and log the API endpoint URL for debugging
+            api_url = f"{self.config.organization_url}/{project}/_apis/testplan/plans/{plan_id}/suites/{suite_id}"
             self.logger.info(f"Retrieving test suite: {suite_id} from plan {plan_id} in project: {project}")
+            self.logger.info(f"API endpoint URL: {api_url}")
             
             # Try using test_plan_client first (newer API)
             if self._test_plan_client:
