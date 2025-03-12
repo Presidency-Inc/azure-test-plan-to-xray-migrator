@@ -169,8 +169,8 @@ class AzureTestExtractor:
         self.logger.info(f"Extracting test plan ID: {plan_id} with specific suites: {suite_ids}")
         
         try:
-            # Get the test plan
-            plan = await self.client.get_test_plan_by_id(
+            # Get the test plan - remove await as the SDK method is not a coroutine
+            plan = self.client.get_test_plan_by_id(
                 project=self.config.project_name,
                 plan_id=plan_id
             )
@@ -226,8 +226,8 @@ class AzureTestExtractor:
         self.logger.info(f"Extracting test suite ID: {suite_id} from plan ID: {plan_id}")
         
         try:
-            # Get the test suite
-            suite = await self.client.get_test_suite_by_id(
+            # Get the test suite - remove await as the SDK method is not a coroutine
+            suite = self.client.get_test_suite_by_id(
                 project=self.config.project_name,
                 plan_id=plan_id,
                 suite_id=suite_id

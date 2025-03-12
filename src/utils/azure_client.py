@@ -35,11 +35,6 @@ class AzureDevOpsClient:
                     creds=credentials
                 )
                 self.logger.info("Connected to Azure DevOps successfully")
-                # Log the actual resource area endpoints being used
-                self.logger.info("Azure DevOps API endpoints:")
-                for resource_area_id, location in self._connection._client.config.resource_area_location.items():
-                    resource_name = getattr(self._connection._client.config, f"resource_area_{resource_area_id}", "Unknown")
-                    self.logger.info(f"  {resource_name} ({resource_area_id}): {location}")
             except Exception as e:
                 self.logger.error(f"Failed to connect to Azure DevOps: {str(e)}")
                 raise
@@ -126,12 +121,12 @@ class AzureDevOpsClient:
             if self._test_plan_client:
                 try:
                     self.logger.info("Using test_plan_client API")
-                    return await self._test_plan_client.get_test_plan_by_id(project, plan_id)
+                    return self._test_plan_client.get_test_plan_by_id(project, plan_id)
                 except Exception as e:
                     self.logger.warning(f"Test plan client failed, falling back to test client: {str(e)}")
             
             # Fall back to test_client
-            return await self.test_client.get_test_plan_by_id(project, plan_id)
+            return self.test_client.get_test_plan_by_id(project, plan_id)
         except Exception as e:
             self.logger.error(f"Error retrieving test plan {plan_id}: {str(e)}")
             return None
@@ -148,12 +143,12 @@ class AzureDevOpsClient:
             if self._test_plan_client:
                 try:
                     self.logger.info("Using test_plan_client API")
-                    return await self._test_plan_client.get_test_suite_by_id(project, plan_id, suite_id)
+                    return self._test_plan_client.get_test_suite_by_id(project, plan_id, suite_id)
                 except Exception as e:
                     self.logger.warning(f"Test plan client failed, falling back to test client: {str(e)}")
             
             # Fall back to test_client
-            return await self.test_client.get_test_suite_by_id(project, plan_id, suite_id)
+            return self.test_client.get_test_suite_by_id(project, plan_id, suite_id)
         except Exception as e:
             self.logger.error(f"Error retrieving test suite {suite_id} from plan {plan_id}: {str(e)}")
             return None 
