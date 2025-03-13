@@ -204,12 +204,16 @@ class AzureTestExtractor:
                 
             if root_suite_id:
                 self.logger.info(f"Found root suite ID: {root_suite_id}")
+                
+                # MODIFIED: Check if root suite itself is in the specified suites
+                root_is_requested = root_suite_id in suite_ids
+                
                 # First extract the root suite with all its hierarchy
                 root_suite = await self._extract_suite_with_hierarchy(
                     plan_id, 
                     root_suite_id, 
                     suite_hierarchy, 
-                    include_all_suites=False, 
+                    include_all_suites=root_is_requested,  # If root is requested, include all its children
                     specific_suites=suite_ids
                 )
                 
@@ -220,7 +224,15 @@ class AzureTestExtractor:
                 self.logger.warning(f"No root suite found for plan {plan_id}, extracting specified suites directly")
                 for suite_id in suite_ids:
                     try:
-                        suite = await self._extract_specific_test_suite(plan_id, suite_id)
+                        # Use the hierarchy extraction method instead of direct suite extraction
+                        # This will ensure we get the complete hierarchy for each specified suite
+                        suite = await self._extract_suite_with_hierarchy(
+                            plan_id,
+                            suite_id,
+                            suite_hierarchy,
+                            include_all_suites=True,  # Include all children of this specific suite
+                            specific_suites=suite_ids
+                        )
                         if suite:
                             test_plan["test_suites"].append(suite)
                     except Exception as e:
@@ -275,7 +287,8 @@ class AzureTestExtractor:
                 "child_suites": []
             }
             
-            # Extract test cases for this suite if it's in the specific_suites list or we're including all suites
+            # Extract test cases if this suite is in the specific_suites list or we're including all suites
+            # IMPORTANT: We're checking if this suite is specifically requested or we're including all
             should_extract_test_cases = include_all_suites or (specific_suites and suite_id in specific_suites)
             
             if should_extract_test_cases:
@@ -293,8 +306,18 @@ class AzureTestExtractor:
                 
             # Extract child suites recursively
             for child_id in child_suite_ids:
-                # If we're including all suites or this child is in the specific suites list, extract it
-                if include_all_suites or (specific_suites and child_id in specific_suites):
+                # MODIFIED LOGIC: 
+                # 1. Include if we're including all suites
+                # 2. Include if this child is specifically requested
+                # 3. ADDED: Include if this suite's parent (current suite) is specifically requested
+                # This ensures we get complete hierarchies for any suite in specific_suites
+                should_extract_child = (
+                    include_all_suites or 
+                    (specific_suites and child_id in specific_suites) or
+                    (specific_suites and suite_id in specific_suites)  # Extract all children of a requested suite
+                )
+                
+                if should_extract_child:
                     child_suite = await self._extract_suite_with_hierarchy(
                         plan_id, 
                         child_id, 
