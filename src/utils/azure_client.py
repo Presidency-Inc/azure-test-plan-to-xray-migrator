@@ -3,6 +3,49 @@ from msrest.authentication import BasicAuthentication
 from config.config import AzureConfig
 import logging
 from typing import List, Dict, Any
+import time
+import asyncio
+
+async def retry_async(func, *args, retries=3, delay=2, backoff=2, **kwargs):
+    """
+    Retry an async function with exponential backoff
+    
+    Args:
+        func: The async function to retry
+        args: Positional arguments to pass to the function
+        retries: Number of times to retry before giving up
+        delay: Initial delay between retries in seconds
+        backoff: Backoff multiplier e.g. value of 2 will double the delay each retry
+        kwargs: Keyword arguments to pass to the function
+        
+    Returns:
+        The return value of the function
+        
+    Raises:
+        The last exception raised by the function
+    """
+    last_exception = None
+    current_delay = delay
+    
+    # Try to call the function
+    for retry_count in range(retries + 1):  # +1 because we want to try once, then retry 'retries' times
+        try:
+            if retry_count > 0:
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Retry attempt {retry_count}/{retries} for {func.__name__} after {current_delay}s delay")
+            return await func(*args, **kwargs)
+        except Exception as e:
+            last_exception = e
+            if retry_count < retries:  # No need to sleep after the last retry
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Exception during {func.__name__}: {str(e)}. Retrying in {current_delay}s...")
+                await asyncio.sleep(current_delay)
+                current_delay *= backoff  # Exponential backoff
+            else:
+                # Last retry failed, re-raise the exception
+                logger = logging.getLogger(__name__)
+                logger.error(f"All {retries} retries failed for {func.__name__}: {str(e)}")
+                raise
 
 class AzureDevOpsClient:
     def __init__(self, config: AzureConfig):
@@ -382,4 +425,266 @@ class AzureDevOpsClient:
                 return []
         except Exception as e:
             self.logger.error(f"Error retrieving test variables: {str(e)}")
+            return []
+    
+    def get_test_plans(self, project: str) -> List:
+        """
+        Get all test plans for a project using the modern Test Plan API
+        See: https://learn.microsoft.com/en-us/rest/api/azure/devops/test/test-plans/list
+        """
+        self.logger.info(f"Getting all test plans for project {project}")
+        
+        try:
+            if not hasattr(self, 'test_plan_client') or not self.test_plan_client:
+                self.logger.error("Test plan client not initialized")
+                return []
+                
+            # Modern API method to get all test plans - NOT async
+            test_plans = self.test_plan_client.get_test_plans(project=project)
+            self.logger.info(f"Retrieved {len(test_plans) if test_plans else 0} test plans")
+            return test_plans
+        except Exception as e:
+            self.logger.error(f"Error getting test plans: {str(e)}")
+            return []
+            
+    def get_test_suites_for_plan(self, project: str, plan_id: int) -> List:
+        """
+        Get all test suites for a plan using the modern Test Suite API
+        See: https://learn.microsoft.com/en-us/rest/api/azure/devops/test/test-suites/list
+        """
+        self.logger.info(f"Getting all test suites for plan {plan_id} in project {project}")
+        
+        try:
+            if not hasattr(self, 'test_plan_client') or not self.test_plan_client:
+                self.logger.error("Test plan client not initialized")
+                return []
+                
+            # Get test suites - NOT async
+            test_suites = self.test_plan_client.get_test_suites_for_plan(
+                project=project,
+                plan_id=plan_id
+            )
+            self.logger.info(f"Retrieved {len(test_suites) if test_suites else 0} test suites for plan {plan_id}")
+            return test_suites
+        except Exception as e:
+            self.logger.error(f"Error getting test suites for plan {plan_id}: {str(e)}")
+            return []
+
+    def get_test_cases_for_suite(self, project: str, plan_id: int, suite_id: int) -> List:
+        """
+        Get all test cases for a test suite using the modern API
+        """
+        self.logger.info(f"Getting test cases for suite {suite_id} in plan {plan_id}")
+        
+        try:
+            if not hasattr(self, 'test_plan_client') or not self.test_plan_client:
+                self.logger.error("Test plan client not initialized")
+                return []
+                
+            # Get test cases - NOT async, using modern API
+            test_cases = self.test_plan_client.get_test_case_list(
+                project=project,
+                plan_id=plan_id,
+                suite_id=suite_id
+            )
+            self.logger.info(f"Retrieved {len(test_cases) if test_cases else 0} test cases for suite {suite_id}")
+            return test_cases
+        except Exception as e:
+            self.logger.error(f"Error getting test cases for suite {suite_id}: {str(e)}")
+            return []
+
+    def get_suite_hierarchy(self, project: str, plan_id: int) -> Dict[int, Any]:
+        """
+        Build a complete hierarchy of all suites in a plan using modern API only
+        """
+        self.logger.info(f"Building suite hierarchy for plan {plan_id} in project {project}")
+        
+        suite_hierarchy = {}
+        try:
+            # Get all suites in the plan
+            suites = self.get_test_suites_for_plan(project=project, plan_id=plan_id)
+            
+            if not suites:
+                self.logger.warning(f"No suites found for plan {plan_id}")
+                return {}
+                
+            # Build the hierarchy dictionary
+            for suite in suites:
+                suite_id = suite.id if hasattr(suite, 'id') else None
+                if suite_id:
+                    suite_hierarchy[suite_id] = suite
+                    
+            self.logger.info(f"Built suite hierarchy with {len(suite_hierarchy)} suites")
+            return suite_hierarchy
+        except Exception as e:
+            self.logger.error(f"Error building suite hierarchy: {str(e)}")
+            return {}
+
+    # Modern API methods (using REST API directly)
+    async def get_all_test_plans_modern(self, project_name=None) -> List[Dict]:
+        """
+        Get all test plans in a project using the modern REST API
+        
+        Args:
+            project_name: The name of the project (defaults to the one in config)
+            
+        Returns:
+            List of test plans
+        """
+        async def _get_test_plans():
+            project = project_name or self.config.project_name
+            self.logger.info(f"API CALL: Getting all test plans for project '{project}' using modern API")
+            
+            # Create the REST URL for test plans
+            org_url = self.config.organization_url.rstrip('/')
+            api_url = f"{org_url}/{project}/_apis/testplan/plans?api-version=7.0"
+            self.logger.info(f"API URL: {api_url}")
+            
+            # Use the requests session from the connection object
+            self.logger.info(f"Sending GET request to {api_url}")
+            response = self.connection.client.session.get(api_url)
+            self.logger.info(f"API Response Status: {response.status_code}")
+            response.raise_for_status()
+            
+            # Extract and parse the response
+            data = response.json()
+            plans = data.get('value', [])
+            
+            self.logger.info(f"API RESULT: Successfully retrieved {len(plans)} test plans from project '{project}'")
+            
+            # Log the first plan as a sample (masked for privacy)
+            if plans and len(plans) > 0:
+                sample_plan = plans[0].copy()
+                self.logger.info(f"API SAMPLE RESULT: First plan ID: {sample_plan.get('id')}, Name: {sample_plan.get('name')}")
+            
+            return plans
+        
+        try:
+            # Use retry logic
+            return await retry_async(_get_test_plans, retries=3, delay=2)
+        except Exception as e:
+            self.logger.error(f"API ERROR: Failed to get test plans using modern API: {str(e)}", exc_info=True)
+            return []
+    
+    async def get_all_test_suites_modern(self, project_name=None, plan_id=None) -> List[Dict]:
+        """
+        Get all test suites for a test plan using the modern REST API
+        
+        Args:
+            project_name: The name of the project (defaults to the one in config)
+            plan_id: The ID of the test plan
+            
+        Returns:
+            List of test suites
+        """
+        async def _get_test_suites():
+            project = project_name or self.config.project_name
+            self.logger.info(f"API CALL: Getting all test suites for plan {plan_id} in project '{project}' using modern API")
+            
+            if not plan_id:
+                self.logger.error("API ERROR: Plan ID is required")
+                return []
+            
+            # Create the REST URL for test suites
+            org_url = self.config.organization_url.rstrip('/')
+            api_url = f"{org_url}/{project}/_apis/testplan/Plans/{plan_id}/suites?api-version=7.0"
+            self.logger.info(f"API URL: {api_url}")
+            
+            # Use the requests session from the connection object
+            self.logger.info(f"Sending GET request to {api_url}")
+            response = self.connection.client.session.get(api_url)
+            self.logger.info(f"API Response Status: {response.status_code}")
+            response.raise_for_status()
+            
+            # Extract and parse the response
+            data = response.json()
+            suites = data.get('value', [])
+            
+            self.logger.info(f"API RESULT: Successfully retrieved {len(suites)} test suites from plan {plan_id}")
+            
+            # Log the first suite as a sample (masked for privacy)
+            if suites and len(suites) > 0:
+                sample_suite = suites[0].copy()
+                self.logger.info(f"API SAMPLE RESULT: First suite ID: {sample_suite.get('id')}, Name: {sample_suite.get('name')}")
+                
+                # Log parent-child relationships for debugging
+                parent_ids = set()
+                for suite in suites:
+                    parent_id = suite.get('parentSuiteId')
+                    if parent_id:
+                        parent_ids.add(parent_id)
+                self.logger.info(f"API RESULT: Found {len(parent_ids)} unique parent suite IDs")
+            
+            return suites
+        
+        try:
+            # Use retry logic
+            return await retry_async(_get_test_suites, retries=3, delay=2)
+        except Exception as e:
+            self.logger.error(f"API ERROR: Failed to get test suites using modern API: {str(e)}", exc_info=True)
+            return []
+    
+    async def get_test_cases_for_suite_modern(self, project_name=None, plan_id=None, suite_id=None) -> List[Dict]:
+        """
+        Get all test cases for a test suite using the modern REST API
+        
+        Args:
+            project_name: The name of the project (defaults to the one in config)
+            plan_id: The ID of the test plan
+            suite_id: The ID of the test suite
+            
+        Returns:
+            List of test cases
+        """
+        async def _get_test_cases():
+            project = project_name or self.config.project_name
+            self.logger.info(f"API CALL: Getting test cases for suite {suite_id} in plan {plan_id} using modern API")
+            
+            if not plan_id or not suite_id:
+                self.logger.error("API ERROR: Plan ID and Suite ID are required")
+                return []
+            
+            # Create the REST URL for test cases
+            org_url = self.config.organization_url.rstrip('/')
+            api_url = f"{org_url}/{project}/_apis/testplan/Plans/{plan_id}/Suites/{suite_id}/TestCase?api-version=7.0"
+            self.logger.info(f"API URL: {api_url}")
+            
+            # Use the requests session from the connection object
+            self.logger.info(f"Sending GET request to {api_url}")
+            response = self.connection.client.session.get(api_url)
+            self.logger.info(f"API Response Status: {response.status_code}")
+            response.raise_for_status()
+            
+            # Extract and parse the response
+            data = response.json()
+            test_cases = data.get('value', [])
+            
+            self.logger.info(f"API RESULT: Successfully retrieved {len(test_cases)} test cases from suite {suite_id}")
+            
+            # For each test case, get the work item details if needed
+            enriched_test_cases = []
+            for tc in test_cases:
+                test_case = {
+                    "id": tc.get("id"),
+                    "workItemId": tc.get("workItem", {}).get("id"),
+                    "testCaseTitle": tc.get("workItem", {}).get("name"),
+                    "pointAssignments": tc.get("pointAssignments", []),
+                    "rev": tc.get("rev"),
+                    "planId": plan_id,
+                    "suiteId": suite_id
+                }
+                enriched_test_cases.append(test_case)
+            
+            # Log the first test case as a sample (masked for privacy)
+            if enriched_test_cases and len(enriched_test_cases) > 0:
+                sample_tc = enriched_test_cases[0].copy()
+                self.logger.info(f"API SAMPLE RESULT: Test case ID: {sample_tc.get('id')}, Work Item ID: {sample_tc.get('workItemId')}, Title: {sample_tc.get('testCaseTitle')}")
+            
+            return enriched_test_cases
+        
+        try:
+            # Use retry logic
+            return await retry_async(_get_test_cases, retries=3, delay=2)
+        except Exception as e:
+            self.logger.error(f"API ERROR: Failed to get test cases using modern API: {str(e)}", exc_info=True)
             return [] 

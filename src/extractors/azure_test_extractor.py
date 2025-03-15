@@ -7,6 +7,7 @@ from datetime import datetime
 from utils.azure_client import AzureDevOpsClient
 from utils.csv_parser import AzureTestPlanCSVParser
 from config.config import AzureConfig
+from pathlib import Path
 
 class AzureTestExtractor:
     def __init__(self, config: AzureConfig):
@@ -768,4 +769,228 @@ class AzureTestExtractor:
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
         
-        self.logger.info(f"Saved extraction summary to {summary_path}") 
+        self.logger.info(f"Saved extraction summary to {summary_path}")
+    
+    async def extract_entire_project(self, project_name=None) -> Dict[str, Any]:
+        """
+        Extract all test plans, suites, and test cases from an entire project
+        maintaining the complete hierarchical structure.
+        This uses only modern API endpoints and extracts everything without filtering.
+        
+        Args:
+            project_name: Name of the project to extract (default: use config project name)
+            
+        Returns:
+            Dictionary containing the complete extraction result
+        """
+        project = project_name or self.config.project_name
+        
+        self.logger.info(f"Starting extraction of all data from project: {project}")
+        
+        # Create a timestamp-based directory for this extraction
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Calculate the base directory using a more robust method
+        # Get the script's directory (the src/extractors folder)
+        current_file = Path(__file__).resolve()
+        project_root = current_file.parent.parent.parent
+        
+        # Create the extraction results directory
+        extraction_base = project_root / 'extraction_results'
+        extraction_base.mkdir(exist_ok=True)
+        
+        extraction_dir = extraction_base / f'{project}_full_extraction_{timestamp}'
+        extraction_dir.mkdir(exist_ok=True)
+        
+        self.logger.info(f"Created extraction directory: {extraction_dir}")
+        
+        # Create a README file to explain the extraction format
+        readme_content = f"""# Azure Test Plan Extraction Results
+
+## Project: {project}
+## Extraction Date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+This directory contains the complete extraction of test plans, suites, and test cases from Azure DevOps.
+The data is extracted without any filtering and is ready for processing by the Xray migration tools.
+
+## Files
+
+- `test_plans.json`: Contains all test plans
+- `test_suites.json`: Contains all test suites with their relationships
+- `test_cases.json`: Contains all test cases with references to their parent suites and plans
+- `extraction_summary.json`: Contains summary statistics about the extraction
+
+## Data Structure
+
+### Test Plans
+Each test plan contains:
+- Plan ID
+- Name
+- Other metadata
+
+### Test Suites
+Each test suite contains:
+- Suite ID
+- Name
+- Parent Plan ID
+- Parent Suite ID (if applicable)
+- Other metadata
+
+### Test Cases
+Each test case contains:
+- Test Case ID
+- Work Item ID
+- Title
+- Parent Suite ID
+- Parent Plan ID
+- Other metadata
+
+## Usage
+
+This data can be used for direct import into Xray or for custom processing.
+The hierarchy is maintained through parent-child relationships in the data.
+"""
+        
+        with open(extraction_dir / 'README.md', 'w') as f:
+            f.write(readme_content)
+        self.logger.info(f"Created README file in {extraction_dir}")
+        
+        # Initialize result dictionary
+        result = {
+            "test_plans": [],
+            "test_suites": [],
+            "test_cases": [],
+            "extraction_path": str(extraction_dir),
+            "project_name": project,
+            "extraction_timestamp": timestamp
+        }
+        
+        try:
+            # 1. Fetch all test plans in the project using modern API
+            self.logger.info(f"Fetching all test plans in project: {project}")
+            test_plans = await self.client.get_all_test_plans_modern(project)
+            
+            if not test_plans:
+                self.logger.warning(f"No test plans found in project: {project}")
+                result["total_plans"] = 0
+                
+                # Save the empty result anyway
+                with open(extraction_dir / 'extraction_summary.json', 'w') as f:
+                    json.dump({
+                        "project_name": project,
+                        "extraction_timestamp": timestamp,
+                        "total_plans": 0,
+                        "total_suites": 0,
+                        "total_test_cases": 0,
+                        "status": "No test plans found"
+                    }, f, indent=2)
+                
+                return result
+                
+            result["test_plans"] = test_plans
+            result["total_plans"] = len(test_plans)
+            self.logger.info(f"Found {len(test_plans)} test plans")
+            
+            # 2. For each test plan, fetch all test suites using modern API
+            plan_ids = [plan["id"] for plan in test_plans]
+            all_suites = []
+            all_test_cases = []
+            
+            total_expected_cases = 0
+            for plan_id in plan_ids:
+                plan_name = next((plan["name"] for plan in test_plans if plan["id"] == plan_id), f"Plan {plan_id}")
+                self.logger.info(f"Processing test plan {plan_id}: {plan_name}")
+                
+                try:
+                    # Get all suites for this plan using modern API
+                    suites = await self.client.get_all_test_suites_modern(project, plan_id)
+                    self.logger.info(f"Found {len(suites)} suites in plan {plan_id}")
+                    
+                    # Track parent-child relationships
+                    for suite in suites:
+                        suite["planId"] = plan_id
+                    
+                    # Get test cases for each suite using modern API
+                    for suite in suites:
+                        suite_id = suite["id"]
+                        suite_name = suite.get("name", f"Suite {suite_id}")
+                        self.logger.info(f"Processing suite {suite_id}: {suite_name}")
+                        
+                        try:
+                            # Get test cases for this suite using modern API
+                            test_cases = await self.client.get_test_cases_for_suite_modern(
+                                project, plan_id, suite_id
+                            )
+                            self.logger.info(f"Found {len(test_cases)} test cases in suite {suite_id}")
+                            total_expected_cases += len(test_cases)
+                            
+                            # Add plan and suite IDs to each test case for reference
+                            for tc in test_cases:
+                                tc["planId"] = plan_id
+                                tc["suiteId"] = suite_id
+                            
+                            all_test_cases.extend(test_cases)
+                            
+                        except Exception as e:
+                            self.logger.error(f"Error fetching test cases for suite {suite_id}: {str(e)}", exc_info=True)
+                    
+                    all_suites.extend(suites)
+                    
+                except Exception as e:
+                    self.logger.error(f"Error processing test plan {plan_id}: {str(e)}", exc_info=True)
+            
+            # Update result with all found entities
+            result["test_suites"] = all_suites
+            result["test_cases"] = all_test_cases
+            
+            # 3. Save the extracted data
+            self.logger.info(f"Extraction completed. Saving results...")
+            
+            # Validate test case count
+            self.logger.info(f"Expected test cases: {total_expected_cases}, Actual: {len(all_test_cases)}")
+            if total_expected_cases != len(all_test_cases):
+                self.logger.warning(f"WARNING: Test case count mismatch. Expected {total_expected_cases} but got {len(all_test_cases)}")
+            
+            # Save test plans
+            with open(extraction_dir / 'test_plans.json', 'w') as f:
+                json.dump(result["test_plans"], f, indent=2)
+            self.logger.info(f"Saved {len(result['test_plans'])} test plans")
+            
+            # Save test suites
+            with open(extraction_dir / 'test_suites.json', 'w') as f:
+                json.dump(result["test_suites"], f, indent=2)
+            self.logger.info(f"Saved {len(result['test_suites'])} test suites")
+            
+            # Save test cases
+            with open(extraction_dir / 'test_cases.json', 'w') as f:
+                json.dump(result["test_cases"], f, indent=2)
+            self.logger.info(f"Saved {len(result['test_cases'])} test cases")
+            
+            # Save summary
+            with open(extraction_dir / 'extraction_summary.json', 'w') as f:
+                json.dump({
+                    "project_name": project,
+                    "extraction_timestamp": timestamp,
+                    "total_plans": len(result["test_plans"]),
+                    "total_suites": len(result["test_suites"]),
+                    "total_test_cases": len(result["test_cases"]),
+                    "status": "Success"
+                }, f, indent=2)
+            
+            self.logger.info(f"Saved extraction results to {extraction_dir}")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting project {project}: {str(e)}", exc_info=True)
+            result["error"] = str(e)
+            
+            # Save error summary
+            with open(extraction_dir / 'extraction_summary.json', 'w') as f:
+                json.dump({
+                    "project_name": project,
+                    "extraction_timestamp": timestamp,
+                    "status": "Error",
+                    "error": str(e)
+                }, f, indent=2)
+                
+            return result 
