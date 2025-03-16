@@ -1,14 +1,21 @@
-import os
-import asyncio
 import argparse
+import asyncio
 import logging
+import os
 import sys
-from logging.handlers import RotatingFileHandler
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from config.config import AzureConfig
-from extractors.azure_test_extractor import AzureTestExtractor
-from utils.json_utils import save_json_data
+
+# Add the src directory to the path
+src_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(src_dir)
+sys.path.append(project_root)
+
+# Now we can import modules from src
+from src.config.config import AzureConfig
+from src.extractors.azure_test_extractor import AzureTestExtractor
+from src.utils.json_utils import save_json_data
 
 def setup_logging():
     # Create logs directory if it doesn't exist
