@@ -4,9 +4,16 @@ import os
 import json
 import logging
 from datetime import datetime
-from utils.azure_client import AzureDevOpsClient
-from utils.csv_parser import AzureTestPlanCSVParser
-from config.config import AzureConfig
+import sys
+
+# Add the project root to the Python path
+file_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if file_path not in sys.path:
+    sys.path.append(file_path)
+
+from src.utils.azure_client import AzureDevOpsClient
+from src.utils.csv_parser import AzureTestPlanCSVParser
+from src.config.config import AzureConfig
 from pathlib import Path
 
 class AzureTestExtractor:

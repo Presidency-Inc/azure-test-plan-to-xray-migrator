@@ -21,8 +21,8 @@ script_dir = Path(__file__).parent.absolute()
 sys.path.append(str(script_dir / 'src'))
 
 # Import after path setup
-from config.config import AzureConfig
-from extractors.azure_test_extractor import AzureTestExtractor
+from src.config.config import AzureConfig
+from src.extractors.azure_test_extractor import AzureTestExtractor
 
 def setup_logging():
     """Set up logging configuration"""

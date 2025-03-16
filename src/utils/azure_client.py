@@ -1,10 +1,18 @@
 from azure.devops.connection import Connection
 from msrest.authentication import BasicAuthentication
-from config.config import AzureConfig
 import logging
 from typing import List, Dict, Any
 import time
 import asyncio
+import os
+import sys
+
+# Add the project root to the Python path
+file_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if file_path not in sys.path:
+    sys.path.append(file_path)
+
+from src.config.config import AzureConfig
 
 async def retry_async(func, *args, retries=3, delay=2, backoff=2, **kwargs):
     """
