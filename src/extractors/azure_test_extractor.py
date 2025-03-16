@@ -790,6 +790,8 @@ class AzureTestExtractor:
         Returns:
             Dictionary containing the complete extraction result
         """
+        from pathlib import Path
+        
         project = project_name or self.config.project_name
         
         self.logger.info(f"Starting extraction of all data from project: {project}")
@@ -878,10 +880,13 @@ The hierarchy is maintained through parent-child relationships in the data.
             test_plans = await self.client.get_all_test_plans_modern(project)
             
             if not test_plans:
-                self.logger.warning(f"No test plans found in project: {project}")
+                error_msg = f"No test plans found in project: {project}"
+                self.logger.warning(error_msg)
                 result["total_plans"] = 0
+                result["error"] = error_msg
+                result["status"] = "ERROR: No test plans found"
                 
-                # Save the empty result anyway
+                # Save the empty result and error summary
                 with open(extraction_dir / 'extraction_summary.json', 'w') as f:
                     json.dump({
                         "project_name": project,
@@ -889,7 +894,8 @@ The hierarchy is maintained through parent-child relationships in the data.
                         "total_plans": 0,
                         "total_suites": 0,
                         "total_test_cases": 0,
-                        "status": "No test plans found"
+                        "status": "ERROR: No test plans found",
+                        "error": error_msg
                     }, f, indent=2)
                 
                 return result
@@ -912,6 +918,10 @@ The hierarchy is maintained through parent-child relationships in the data.
                     # Get all suites for this plan using modern API
                     suites = await self.client.get_all_test_suites_modern(project, plan_id)
                     self.logger.info(f"Found {len(suites)} suites in plan {plan_id}")
+                    
+                    if not suites:
+                        self.logger.warning(f"No suites found in plan {plan_id}")
+                        continue
                     
                     # Track parent-child relationships
                     for suite in suites:
@@ -939,16 +949,36 @@ The hierarchy is maintained through parent-child relationships in the data.
                             all_test_cases.extend(test_cases)
                             
                         except Exception as e:
-                            self.logger.error(f"Error fetching test cases for suite {suite_id}: {str(e)}", exc_info=True)
+                            error_msg = f"Error fetching test cases for suite {suite_id}: {str(e)}"
+                            self.logger.error(error_msg, exc_info=True)
+                            result["errors"] = result.get("errors", []) + [error_msg]
                     
                     all_suites.extend(suites)
                     
                 except Exception as e:
-                    self.logger.error(f"Error processing test plan {plan_id}: {str(e)}", exc_info=True)
+                    error_msg = f"Error processing test plan {plan_id}: {str(e)}"
+                    self.logger.error(error_msg, exc_info=True)
+                    result["errors"] = result.get("errors", []) + [error_msg]
             
             # Update result with all found entities
             result["test_suites"] = all_suites
             result["test_cases"] = all_test_cases
+            
+            # Set status based on results
+            if not all_suites or not all_test_cases:
+                if not all_suites:
+                    error_msg = "No test suites were extracted"
+                    self.logger.warning(error_msg)
+                    result["errors"] = result.get("errors", []) + [error_msg]
+                
+                if not all_test_cases:
+                    error_msg = "No test cases were extracted"
+                    self.logger.warning(error_msg)
+                    result["errors"] = result.get("errors", []) + [error_msg]
+                
+                result["status"] = "WARNING: Partial extraction"
+            else:
+                result["status"] = "Success"
             
             # 3. Save the extracted data
             self.logger.info(f"Extraction completed. Saving results...")
@@ -956,7 +986,9 @@ The hierarchy is maintained through parent-child relationships in the data.
             # Validate test case count
             self.logger.info(f"Expected test cases: {total_expected_cases}, Actual: {len(all_test_cases)}")
             if total_expected_cases != len(all_test_cases):
-                self.logger.warning(f"WARNING: Test case count mismatch. Expected {total_expected_cases} but got {len(all_test_cases)}")
+                warning_msg = f"WARNING: Test case count mismatch. Expected {total_expected_cases} but got {len(all_test_cases)}"
+                self.logger.warning(warning_msg)
+                result["warnings"] = result.get("warnings", []) + [warning_msg]
             
             # Save test plans
             with open(extraction_dir / 'test_plans.json', 'w') as f:
@@ -973,31 +1005,42 @@ The hierarchy is maintained through parent-child relationships in the data.
                 json.dump(result["test_cases"], f, indent=2)
             self.logger.info(f"Saved {len(result['test_cases'])} test cases")
             
+            # Create summary information
+            summary = {
+                "project_name": project,
+                "extraction_timestamp": timestamp,
+                "total_plans": len(result["test_plans"]),
+                "total_suites": len(result["test_suites"]),
+                "total_test_cases": len(result["test_cases"]),
+                "status": result["status"]
+            }
+            
+            # Add errors and warnings if any
+            if "errors" in result:
+                summary["errors"] = result["errors"]
+            if "warnings" in result:
+                summary["warnings"] = result["warnings"]
+            
             # Save summary
             with open(extraction_dir / 'extraction_summary.json', 'w') as f:
-                json.dump({
-                    "project_name": project,
-                    "extraction_timestamp": timestamp,
-                    "total_plans": len(result["test_plans"]),
-                    "total_suites": len(result["test_suites"]),
-                    "total_test_cases": len(result["test_cases"]),
-                    "status": "Success"
-                }, f, indent=2)
+                json.dump(summary, f, indent=2)
             
             self.logger.info(f"Saved extraction results to {extraction_dir}")
             return result
             
         except Exception as e:
-            self.logger.error(f"Error extracting project {project}: {str(e)}", exc_info=True)
-            result["error"] = str(e)
+            error_msg = f"Error extracting project {project}: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+            result["error"] = error_msg
+            result["status"] = "ERROR: Extraction failed"
             
             # Save error summary
             with open(extraction_dir / 'extraction_summary.json', 'w') as f:
                 json.dump({
                     "project_name": project,
                     "extraction_timestamp": timestamp,
-                    "status": "Error",
-                    "error": str(e)
+                    "status": "ERROR: Extraction failed",
+                    "error": error_msg
                 }, f, indent=2)
                 
             return result 

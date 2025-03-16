@@ -6,6 +6,8 @@ import time
 import asyncio
 import os
 import sys
+import requests
+import base64
 
 # Add the project root to the Python path
 file_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -548,9 +550,14 @@ class AzureDevOpsClient:
             api_url = f"{org_url}/{project}/_apis/testplan/plans?api-version=7.0"
             self.logger.info(f"API URL: {api_url}")
             
-            # Use the requests session from the connection object
+            # Create auth header with PAT
+            auth_header = {
+                'Authorization': f'Basic {self._get_basic_auth_string()}'
+            }
+            
+            # Use the requests library directly
             self.logger.info(f"Sending GET request to {api_url}")
-            response = self.connection.client.session.get(api_url)
+            response = requests.get(api_url, headers=auth_header)
             self.logger.info(f"API Response Status: {response.status_code}")
             response.raise_for_status()
             
@@ -573,6 +580,18 @@ class AzureDevOpsClient:
         except Exception as e:
             self.logger.error(f"API ERROR: Failed to get test plans using modern API: {str(e)}", exc_info=True)
             return []
+    
+    def _get_basic_auth_string(self):
+        """
+        Create a base64 encoded authorization string using the PAT
+        
+        Returns:
+            Base64 encoded authorization string
+        """
+        # The format for basic auth is ":{pat}" (note the colon with empty username)
+        auth_string = f":{self.config.personal_access_token}"
+        encoded_auth = base64.b64encode(auth_string.encode('utf-8')).decode('utf-8')
+        return encoded_auth
     
     async def get_all_test_suites_modern(self, project_name=None, plan_id=None) -> List[Dict]:
         """
@@ -598,9 +617,14 @@ class AzureDevOpsClient:
             api_url = f"{org_url}/{project}/_apis/testplan/Plans/{plan_id}/suites?api-version=7.0"
             self.logger.info(f"API URL: {api_url}")
             
-            # Use the requests session from the connection object
+            # Create auth header with PAT
+            auth_header = {
+                'Authorization': f'Basic {self._get_basic_auth_string()}'
+            }
+            
+            # Use the requests library directly
             self.logger.info(f"Sending GET request to {api_url}")
-            response = self.connection.client.session.get(api_url)
+            response = requests.get(api_url, headers=auth_header)
             self.logger.info(f"API Response Status: {response.status_code}")
             response.raise_for_status()
             
@@ -657,9 +681,14 @@ class AzureDevOpsClient:
             api_url = f"{org_url}/{project}/_apis/testplan/Plans/{plan_id}/Suites/{suite_id}/TestCase?api-version=7.0"
             self.logger.info(f"API URL: {api_url}")
             
-            # Use the requests session from the connection object
+            # Create auth header with PAT
+            auth_header = {
+                'Authorization': f'Basic {self._get_basic_auth_string()}'
+            }
+            
+            # Use the requests library directly
             self.logger.info(f"Sending GET request to {api_url}")
-            response = self.connection.client.session.get(api_url)
+            response = requests.get(api_url, headers=auth_header)
             self.logger.info(f"API Response Status: {response.status_code}")
             response.raise_for_status()
             

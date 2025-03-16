@@ -82,12 +82,36 @@ async def main():
         
         extraction_result = await extractor.extract_entire_project(project_name=project_name)
         
-        # Log extraction summary
-        logger.info("========== EXTRACTION COMPLETED ==========")
-        logger.info(f"Extracted {extraction_result.get('total_plans', 0)} test plans")
-        logger.info(f"Extracted {len(extraction_result.get('test_suites', []))} test suites")
-        logger.info(f"Extracted {len(extraction_result.get('test_cases', []))} test cases")
-        logger.info(f"The extracted data is saved in: {extraction_result['extraction_path']}")
+        # Check extraction status
+        status = extraction_result.get("status", "Unknown")
+        
+        if "error" in extraction_result or status.startswith("ERROR"):
+            logger.error("========== EXTRACTION FAILED ==========")
+            if "error" in extraction_result:
+                logger.error(f"Error: {extraction_result['error']}")
+            logger.error(f"Status: {status}")
+            
+            # Log additional errors if available
+            if "errors" in extraction_result:
+                for i, error in enumerate(extraction_result["errors"]):
+                    logger.error(f"Additional error {i+1}: {error}")
+                    
+            logger.error(f"Check logs for details. Extraction directory: {extraction_result['extraction_path']}")
+        else:
+            # Log extraction summary
+            logger.info("========== EXTRACTION COMPLETED ==========")
+            logger.info(f"Status: {status}")
+            logger.info(f"Extracted {extraction_result.get('total_plans', 0)} test plans")
+            logger.info(f"Extracted {len(extraction_result.get('test_suites', []))} test suites")
+            logger.info(f"Extracted {len(extraction_result.get('test_cases', []))} test cases")
+            
+            # Log warnings if any
+            if "warnings" in extraction_result:
+                logger.warning("Warnings during extraction:")
+                for i, warning in enumerate(extraction_result["warnings"]):
+                    logger.warning(f"Warning {i+1}: {warning}")
+            
+            logger.info(f"The extracted data is saved in: {extraction_result['extraction_path']}")
         
     except Exception as e:
         logger.error(f"========== EXTRACTION FAILED ==========")

@@ -85,9 +85,28 @@ async def main():
             extraction_result = await extractor.extract_entire_project(
                 project_name=args.project_name
             )
+            
+            # Check extraction status
+            status = extraction_result.get("status", "Unknown")
+            
+            if "error" in extraction_result or status.startswith("ERROR"):
+                logger.error("Extraction failed")
+                if "error" in extraction_result:
+                    logger.error(f"Error: {extraction_result['error']}")
+                logger.error(f"Status: {status}")
+                
+                # Log additional errors if available
+                if "errors" in extraction_result:
+                    for i, error in enumerate(extraction_result["errors"]):
+                        logger.error(f"Additional error {i+1}: {error}")
+                        
+                logger.error(f"Check logs for details. Extraction directory: {extraction_result['extraction_path']}")
+                return
+            
             logger.info(f"Extraction completed successfully")
             logger.info(f"Extracted {extraction_result.get('total_plans', 0)} test plans")
             logger.info(f"The extracted data is saved in: {extraction_result['extraction_path']}")
+            
         elif args.csv:
             # Legacy: Extract specific test plans from CSV
             logger.info(f"Extracting specific test plans from CSV: {args.csv}")
@@ -105,7 +124,7 @@ async def main():
         # Log extraction summary
         logger.info("Extraction completed successfully")
         for entity_type, entities in extraction_result.items():
-            if entity_type not in ["extraction_path", "csv_mapping", "project_name", "extraction_timestamp", "total_plans", "error"]:
+            if entity_type not in ["extraction_path", "csv_mapping", "project_name", "extraction_timestamp", "total_plans", "error", "errors", "warnings", "status"]:
                 count = len(entities) if isinstance(entities, list) else 1
                 logger.info(f"  Extracted {count} {entity_type}")
         
