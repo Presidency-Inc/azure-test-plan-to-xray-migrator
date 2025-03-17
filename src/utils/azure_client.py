@@ -701,11 +701,15 @@ class AzureDevOpsClient:
             # For each test case, get the work item details if needed
             enriched_test_cases = []
             for tc in test_cases:
+                # Get the point assignment ID for the first point assignment if available
+                point_assignments = tc.get("pointAssignments", [])
+                test_point_id = point_assignments[0].get("id") if point_assignments and len(point_assignments) > 0 else None
+                
                 test_case = {
-                    "id": tc.get("id"),
+                    "id": test_point_id,  # Use test point ID as the test case ID
                     "workItemId": tc.get("workItem", {}).get("id"),
                     "testCaseTitle": tc.get("workItem", {}).get("name"),
-                    "pointAssignments": tc.get("pointAssignments", []),
+                    "pointAssignments": point_assignments,
                     "rev": tc.get("rev"),
                     "planId": plan_id,
                     "suiteId": suite_id
@@ -756,7 +760,7 @@ class AzureDevOpsClient:
             
             # Create the REST URL for work items
             org_url = self.config.organization_url.rstrip('/')
-            api_url = f"{org_url}/{project}/_apis/wit/workitems?ids={id_list_str}&api-version=7.1"
+            api_url = f"{org_url}/{project}/_apis/wit/workitems?ids={id_list_str}&api-version=7.0"
             
             # Add fields parameter if provided
             if fields and len(fields) > 0:
@@ -820,7 +824,7 @@ class AzureDevOpsClient:
             
             # Create the REST URL for the work item
             org_url = self.config.organization_url.rstrip('/')
-            api_url = f"{org_url}/{project}/_apis/wit/workitems/{work_item_id}?api-version=7.1"
+            api_url = f"{org_url}/{project}/_apis/wit/workitems/{work_item_id}?api-version=7.0"
             
             # Add fields parameter if provided
             if fields and len(fields) > 0:
@@ -876,7 +880,7 @@ class AzureDevOpsClient:
             
             # Create the REST URL for fields
             org_url = self.config.organization_url.rstrip('/')
-            api_url = f"{org_url}/_apis/wit/fields?api-version=7.1"
+            api_url = f"{org_url}/_apis/wit/fields?api-version=7.0"
             
             self.logger.info(f"API URL: {api_url}")
             

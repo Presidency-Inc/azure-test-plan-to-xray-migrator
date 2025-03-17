@@ -128,10 +128,15 @@ async def main():
         
         # Extract work items
         logger.info(f"Extracting {len(work_item_ids)} work items")
-        extraction_result = await work_item_extractor.extract_test_case_work_items(
-            work_item_ids, 
-            fields
-        )
+        
+        # Call the extract_work_items_batch method directly instead of extract_test_case_work_items
+        work_items = await work_item_extractor.extract_work_items_batch(project, work_item_ids)
+        extraction_result = {
+            "work_items": work_items,
+            "work_item_count": len(work_items),
+            "extraction_timestamp": datetime.now().isoformat(),
+            "status": "Success" if work_items else "ERROR: No work items extracted"
+        }
         
         # Process the work items
         work_items = extraction_result.get("work_items", [])
