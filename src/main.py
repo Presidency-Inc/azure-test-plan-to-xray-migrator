@@ -83,7 +83,7 @@ async def main():
             # New: Extract entire project using modern API only
             logger.info(f"Extracting entire project: {args.project_name}")
             extraction_result = await extractor.extract_entire_project(
-                project_name=args.project_name
+                project=args.project_name
             )
             
             # Check extraction status
@@ -105,6 +105,19 @@ async def main():
             
             logger.info(f"Extraction completed successfully")
             logger.info(f"Extracted {extraction_result.get('total_plans', 0)} test plans")
+            
+            # Add work item extraction status reporting
+            if "work_items" in extraction_result:
+                work_item_count = len(extraction_result["work_items"])
+                work_item_status = extraction_result.get("work_item_extraction_status", "Unknown")
+                logger.info(f"Extracted {work_item_count} work items")
+                logger.info(f"Work item extraction status: {work_item_status}")
+                
+                # Report any work item warnings
+                if "work_item_warnings" in extraction_result:
+                    for i, warning in enumerate(extraction_result["work_item_warnings"]):
+                        logger.warning(f"Work item warning {i+1}: {warning}")
+            
             logger.info(f"The extracted data is saved in: {extraction_result['extraction_path']}")
             
         elif args.csv:

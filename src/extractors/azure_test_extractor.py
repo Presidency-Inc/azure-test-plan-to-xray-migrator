@@ -14,6 +14,8 @@ if file_path not in sys.path:
 from src.utils.azure_client import AzureDevOpsClient
 from src.utils.csv_parser import AzureTestPlanCSVParser
 from src.config.config import AzureConfig
+from src.work_items.work_item_extractor import WorkItemExtractor
+from src.work_items.work_item_processor import WorkItemProcessor
 from pathlib import Path
 
 class AzureTestExtractor:
@@ -778,122 +780,50 @@ class AzureTestExtractor:
         
         self.logger.info(f"Saved extraction summary to {summary_path}")
     
-    async def extract_entire_project(self, project_name=None) -> Dict[str, Any]:
+    async def extract_entire_project(self, project: str = None) -> Dict[str, Any]:
         """
-        Extract all test plans, suites, and test cases from an entire project
-        maintaining the complete hierarchical structure.
-        This uses only modern API endpoints and extracts everything without filtering.
+        Extract all test plans, suites, and test cases from an entire Azure DevOps project
+        using only modern API endpoints.
         
         Args:
-            project_name: Name of the project to extract (default: use config project name)
+            project: Project name (defaults to the one in config)
             
         Returns:
-            Dictionary containing the complete extraction result
+            Dictionary containing extracted data and status information
         """
-        from pathlib import Path
-        
-        project = project_name or self.config.project_name
-        
-        self.logger.info(f"Starting extraction of all data from project: {project}")
-        
-        # Create a timestamp-based directory for this extraction
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Calculate the base directory using a more robust method
-        # Get the script's directory (the src/extractors folder)
-        current_file = Path(__file__).resolve()
-        project_root = current_file.parent.parent.parent
-        
-        # Create the extraction results directory
-        extraction_base = project_root / 'extraction_results'
-        extraction_base.mkdir(exist_ok=True)
-        
-        extraction_dir = extraction_base / f'{project}_full_extraction_{timestamp}'
-        extraction_dir.mkdir(exist_ok=True)
-        
-        self.logger.info(f"Created extraction directory: {extraction_dir}")
-        
-        # Create a README file to explain the extraction format
-        readme_content = f"""# Azure Test Plan Extraction Results
-
-## Project: {project}
-## Extraction Date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-
-This directory contains the complete extraction of test plans, suites, and test cases from Azure DevOps.
-The data is extracted without any filtering and is ready for processing by the Xray migration tools.
-
-## Files
-
-- `test_plans.json`: Contains all test plans
-- `test_suites.json`: Contains all test suites with their relationships
-- `test_cases.json`: Contains all test cases with references to their parent suites and plans
-- `extraction_summary.json`: Contains summary statistics about the extraction
-
-## Data Structure
-
-### Test Plans
-Each test plan contains:
-- Plan ID
-- Name
-- Other metadata
-
-### Test Suites
-Each test suite contains:
-- Suite ID
-- Name
-- Parent Plan ID
-- Parent Suite ID (if applicable)
-- Other metadata
-
-### Test Cases
-Each test case contains:
-- Test Case ID
-- Work Item ID
-- Title
-- Parent Suite ID
-- Parent Plan ID
-- Other metadata
-
-## Usage
-
-This data can be used for direct import into Xray or for custom processing.
-The hierarchy is maintained through parent-child relationships in the data.
-"""
-        
-        with open(extraction_dir / 'README.md', 'w') as f:
-            f.write(readme_content)
-        self.logger.info(f"Created README file in {extraction_dir}")
+        project = project or self.config.project_name
         
         # Initialize result dictionary
         result = {
-            "test_plans": [],
-            "test_suites": [],
-            "test_cases": [],
-            "extraction_path": str(extraction_dir),
-            "project_name": project,
-            "extraction_timestamp": timestamp
+            "project": project,
+            "timestamp": datetime.now().isoformat(),
+            "status": "In Progress"
         }
         
+        # Create a timestamp-based directory for this extraction
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        extraction_dir = Path(os.path.join(self.output_dir, timestamp))
+        os.makedirs(extraction_dir, exist_ok=True)
+        
+        self.logger.info(f"Starting extraction of entire project: {project}")
+        self.logger.info(f"Output directory: {extraction_dir}")
+        
         try:
-            # 1. Fetch all test plans in the project using modern API
-            self.logger.info(f"Fetching all test plans in project: {project}")
+            # 1. Get all test plans using the modern API
+            self.logger.info(f"Fetching all test plans from project {project}")
             test_plans = await self.client.get_all_test_plans_modern(project)
             
             if not test_plans:
-                error_msg = f"No test plans found in project: {project}"
-                self.logger.warning(error_msg)
-                result["total_plans"] = 0
+                error_msg = f"No test plans found in project {project}"
+                self.logger.error(error_msg)
                 result["error"] = error_msg
                 result["status"] = "ERROR: No test plans found"
                 
-                # Save the empty result and error summary
+                # Save error summary
                 with open(extraction_dir / 'extraction_summary.json', 'w') as f:
                     json.dump({
                         "project_name": project,
                         "extraction_timestamp": timestamp,
-                        "total_plans": 0,
-                        "total_suites": 0,
-                        "total_test_cases": 0,
                         "status": "ERROR: No test plans found",
                         "error": error_msg
                     }, f, indent=2)
@@ -980,7 +910,54 @@ The hierarchy is maintained through parent-child relationships in the data.
             else:
                 result["status"] = "Success"
             
-            # 3. Save the extracted data
+            # 3. Extract work items for test cases
+            if all_test_cases:
+                self.logger.info("Extracting work item data for test cases...")
+                try:
+                    # Initialize work item extractor and processor
+                    work_item_extractor = WorkItemExtractor(self.client)
+                    work_item_processor = WorkItemProcessor()
+                    
+                    # Extract work item IDs from test cases
+                    work_item_ids = work_item_extractor.extract_work_item_ids(all_test_cases)
+                    self.logger.info(f"Found {len(work_item_ids)} unique work item IDs to extract")
+                    
+                    # Get fields needed for test cases
+                    test_case_fields = work_item_extractor.get_test_case_fields()
+                    
+                    # Extract work items
+                    extraction_result = await work_item_extractor.extract_test_case_work_items(
+                        work_item_ids, 
+                        test_case_fields
+                    )
+                    
+                    # Process the work items to extract structured data
+                    work_items = extraction_result.get("work_items", [])
+                    self.logger.info(f"Processing {len(work_items)} work items")
+                    processed_work_items = work_item_processor.process_work_items(work_items)
+                    
+                    # Enhance test cases with work item data
+                    enhanced_test_cases = work_item_processor.enhance_test_cases(all_test_cases, processed_work_items)
+                    
+                    # Update result with work item data
+                    result["work_items"] = processed_work_items
+                    result["enhanced_test_cases"] = enhanced_test_cases
+                    result["work_item_extraction_status"] = extraction_result.get("status", "Unknown")
+                    
+                    # Save work items
+                    work_item_processor.save_work_items(processed_work_items, str(extraction_dir / 'work_items.json'))
+                    
+                    # Save enhanced test cases
+                    work_item_processor.save_enhanced_test_cases(enhanced_test_cases, str(extraction_dir / 'enhanced_test_cases.json'))
+                    
+                    self.logger.info(f"Work item extraction completed: {extraction_result.get('status', 'Unknown')}")
+                except Exception as e:
+                    error_msg = f"Error extracting work items: {str(e)}"
+                    self.logger.error(error_msg, exc_info=True)
+                    result["errors"] = result.get("errors", []) + [error_msg]
+                    result["work_item_extraction_status"] = "ERROR: Failed to extract work items"
+            
+            # 4. Save the extracted data
             self.logger.info(f"Extraction completed. Saving results...")
             
             # Validate test case count
@@ -1011,9 +988,15 @@ The hierarchy is maintained through parent-child relationships in the data.
                 "extraction_timestamp": timestamp,
                 "total_plans": len(result["test_plans"]),
                 "total_suites": len(result["test_suites"]),
-                "total_test_cases": len(result["test_cases"]),
-                "status": result["status"]
+                "total_test_cases": len(result["test_cases"])
             }
+            
+            # Add work item information if available
+            if "work_items" in result:
+                summary["total_work_items"] = len(result["work_items"])
+                summary["work_item_extraction_status"] = result.get("work_item_extraction_status", "Unknown")
+            
+            summary["status"] = result["status"]
             
             # Add errors and warnings if any
             if "errors" in result:

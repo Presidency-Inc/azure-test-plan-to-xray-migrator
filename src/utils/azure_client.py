@@ -724,4 +724,273 @@ class AzureDevOpsClient:
             return await retry_async(_get_test_cases, retries=3, delay=2)
         except Exception as e:
             self.logger.error(f"API ERROR: Failed to get test cases using modern API: {str(e)}", exc_info=True)
-            return [] 
+            return []
+            
+    # Work Item API methods
+    async def get_work_items_batch(self, work_item_ids: List[int], fields: List[str] = None, project_name=None) -> List[Dict]:
+        """
+        Get work items in a batch (up to 200 items) using the modern REST API
+        
+        Args:
+            work_item_ids: List of work item IDs to retrieve
+            fields: List of specific fields to include (optional)
+            project_name: The name of the project (defaults to the one in config)
+            
+        Returns:
+            List of work items
+        """
+        if not work_item_ids:
+            self.logger.warning("No work item IDs provided for batch retrieval")
+            return []
+            
+        # Azure DevOps API can handle up to 200 IDs at once
+        if len(work_item_ids) > 200:
+            self.logger.warning(f"Too many work item IDs provided ({len(work_item_ids)}). Limiting to first 200.")
+            work_item_ids = work_item_ids[:200]
+            
+        async def _get_work_items_batch():
+            project = project_name or self.config.project_name
+            id_list_str = ','.join(map(str, work_item_ids))
+            
+            self.logger.info(f"API CALL: Getting {len(work_item_ids)} work items from project '{project}' using modern API")
+            
+            # Create the REST URL for work items
+            org_url = self.config.organization_url.rstrip('/')
+            api_url = f"{org_url}/{project}/_apis/wit/workitems?ids={id_list_str}&api-version=7.1"
+            
+            # Add fields parameter if provided
+            if fields and len(fields) > 0:
+                fields_str = ','.join(fields)
+                api_url += f"&fields={fields_str}"
+                
+            self.logger.info(f"API URL: {api_url}")
+            
+            # Create auth header with PAT
+            auth_header = {
+                'Authorization': f'Basic {self._get_basic_auth_string()}'
+            }
+            
+            # Use the requests library directly
+            self.logger.info(f"Sending GET request to Azure DevOps API")
+            response = requests.get(api_url, headers=auth_header)
+            self.logger.info(f"API Response Status: {response.status_code}")
+            response.raise_for_status()
+            
+            # Extract and parse the response
+            data = response.json()
+            work_items = data.get('value', [])
+            
+            self.logger.info(f"API RESULT: Successfully retrieved {len(work_items)} work items")
+            
+            # Log a sample work item for debugging
+            if work_items and len(work_items) > 0:
+                sample_wi = work_items[0].copy()
+                if 'fields' in sample_wi:
+                    # Mask potentially sensitive data in fields
+                    field_keys = list(sample_wi['fields'].keys())
+                    self.logger.info(f"API SAMPLE RESULT: Work item ID: {sample_wi.get('id')}, Field count: {len(field_keys)}, Sample fields: {field_keys[:5]}")
+                else:
+                    self.logger.info(f"API SAMPLE RESULT: Work item ID: {sample_wi.get('id')}, no fields found")
+            
+            return work_items
+        
+        try:
+            # Use retry logic
+            return await retry_async(_get_work_items_batch, retries=3, delay=2)
+        except Exception as e:
+            self.logger.error(f"API ERROR: Failed to get work items batch using modern API: {str(e)}", exc_info=True)
+            return []
+            
+    async def get_work_item(self, work_item_id: int, fields: List[str] = None, project_name=None) -> Dict:
+        """
+        Get a single work item using the modern REST API
+        
+        Args:
+            work_item_id: The ID of the work item to retrieve
+            fields: List of specific fields to include (optional)
+            project_name: The name of the project (defaults to the one in config)
+            
+        Returns:
+            Work item details as a dictionary
+        """
+        async def _get_work_item():
+            project = project_name or self.config.project_name
+            
+            self.logger.info(f"API CALL: Getting work item {work_item_id} from project '{project}' using modern API")
+            
+            # Create the REST URL for the work item
+            org_url = self.config.organization_url.rstrip('/')
+            api_url = f"{org_url}/{project}/_apis/wit/workitems/{work_item_id}?api-version=7.1"
+            
+            # Add fields parameter if provided
+            if fields and len(fields) > 0:
+                fields_str = ','.join(fields)
+                api_url += f"&fields={fields_str}"
+                
+            self.logger.info(f"API URL: {api_url}")
+            
+            # Create auth header with PAT
+            auth_header = {
+                'Authorization': f'Basic {self._get_basic_auth_string()}'
+            }
+            
+            # Use the requests library directly
+            self.logger.info(f"Sending GET request to Azure DevOps API")
+            response = requests.get(api_url, headers=auth_header)
+            self.logger.info(f"API Response Status: {response.status_code}")
+            response.raise_for_status()
+            
+            # Extract and parse the response
+            work_item = response.json()
+            
+            self.logger.info(f"API RESULT: Successfully retrieved work item {work_item_id}")
+            
+            # Log basic info about the work item
+            if 'fields' in work_item:
+                field_keys = list(work_item['fields'].keys())
+                self.logger.info(f"API RESULT: Work item fields retrieved: {len(field_keys)}")
+            
+            return work_item
+        
+        try:
+            # Use retry logic
+            return await retry_async(_get_work_item, retries=3, delay=2)
+        except Exception as e:
+            self.logger.error(f"API ERROR: Failed to get work item {work_item_id} using modern API: {str(e)}", exc_info=True)
+            return {}
+            
+    async def get_fields(self, project_name=None) -> List[Dict]:
+        """
+        Get all work item fields available in the organization
+        
+        Args:
+            project_name: The name of the project (defaults to the one in config)
+            
+        Returns:
+            List of field definitions
+        """
+        async def _get_fields():
+            project = project_name or self.config.project_name
+            
+            self.logger.info(f"API CALL: Getting work item fields from project '{project}' using modern API")
+            
+            # Create the REST URL for fields
+            org_url = self.config.organization_url.rstrip('/')
+            api_url = f"{org_url}/_apis/wit/fields?api-version=7.1"
+            
+            self.logger.info(f"API URL: {api_url}")
+            
+            # Create auth header with PAT
+            auth_header = {
+                'Authorization': f'Basic {self._get_basic_auth_string()}'
+            }
+            
+            # Use the requests library directly
+            self.logger.info(f"Sending GET request to Azure DevOps API")
+            response = requests.get(api_url, headers=auth_header)
+            self.logger.info(f"API Response Status: {response.status_code}")
+            response.raise_for_status()
+            
+            # Extract and parse the response
+            data = response.json()
+            fields = data.get('value', [])
+            
+            self.logger.info(f"API RESULT: Successfully retrieved {len(fields)} work item fields")
+            
+            return fields
+        
+        try:
+            # Use retry logic
+            return await retry_async(_get_fields, retries=3, delay=2)
+        except Exception as e:
+            self.logger.error(f"API ERROR: Failed to get work item fields using modern API: {str(e)}", exc_info=True)
+            return []
+            
+    async def get_work_item_attachments(self, work_item_id: int, project_name=None) -> List[Dict]:
+        """
+        Get attachments for a work item
+        
+        Args:
+            work_item_id: The ID of the work item
+            project_name: The name of the project (defaults to the one in config)
+            
+        Returns:
+            List of attachment metadata
+        """
+        async def _get_attachments():
+            project = project_name or self.config.project_name
+            
+            self.logger.info(f"API CALL: Getting attachments for work item {work_item_id} in project '{project}'")
+            
+            # First get the work item to find attachment references
+            work_item = await self.get_work_item(work_item_id, project_name=project)
+            
+            if not work_item or 'relations' not in work_item:
+                self.logger.warning(f"No relations found in work item {work_item_id}")
+                return []
+                
+            # Filter for attachment relations
+            attachment_relations = [
+                relation for relation in work_item.get('relations', [])
+                if relation.get('rel', '').lower() == 'attachedfile'
+            ]
+            
+            self.logger.info(f"Found {len(attachment_relations)} attachment relations in work item {work_item_id}")
+            
+            attachments = []
+            for relation in attachment_relations:
+                # Extract attachment metadata
+                attachment = {
+                    'url': relation.get('url'),
+                    'attributes': relation.get('attributes', {}),
+                }
+                
+                # Add name from attributes if available
+                if 'name' in relation.get('attributes', {}):
+                    attachment['name'] = relation['attributes']['name']
+                    
+                attachments.append(attachment)
+                
+            self.logger.info(f"Processed {len(attachments)} attachments for work item {work_item_id}")
+            return attachments
+            
+        try:
+            # Use retry logic
+            return await retry_async(_get_attachments, retries=3, delay=2)
+        except Exception as e:
+            self.logger.error(f"API ERROR: Failed to get attachments for work item {work_item_id}: {str(e)}", exc_info=True)
+            return []
+            
+    async def get_attachment_content(self, attachment_url: str) -> bytes:
+        """
+        Download attachment content
+        
+        Args:
+            attachment_url: The URL of the attachment
+            
+        Returns:
+            Attachment content as bytes
+        """
+        async def _get_attachment():
+            self.logger.info(f"API CALL: Downloading attachment from URL")
+            
+            # Create auth header with PAT
+            auth_header = {
+                'Authorization': f'Basic {self._get_basic_auth_string()}'
+            }
+            
+            # Use the requests library directly
+            self.logger.info(f"Sending GET request to download attachment")
+            response = requests.get(attachment_url, headers=auth_header)
+            self.logger.info(f"API Response Status: {response.status_code}")
+            response.raise_for_status()
+            
+            # Return the raw content
+            return response.content
+            
+        try:
+            # Use retry logic
+            return await retry_async(_get_attachment, retries=3, delay=2)
+        except Exception as e:
+            self.logger.error(f"API ERROR: Failed to download attachment: {str(e)}", exc_info=True)
+            return bytes() 
