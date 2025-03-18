@@ -61,7 +61,7 @@ class WorkItemExtractor:
             "Microsoft.VSTS.TCM.Steps",           # Contains steps, actions and expected results
             "Microsoft.VSTS.TCM.Parameters",      # Test parameters
             "Microsoft.VSTS.TCM.LocalDataSource", # Parameter values
-            "Microsoft.VSTS.TCM.Prerequisites",   # Preconditions
+            # "Microsoft.VSTS.TCM.Prerequisites" field was removed as it doesn't exist in this Azure DevOps instance
             "Microsoft.VSTS.TCM.AutomationStatus", # Automation status
             "Microsoft.VSTS.Common.Priority"      # Priority
         ]
