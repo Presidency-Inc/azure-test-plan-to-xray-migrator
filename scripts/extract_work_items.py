@@ -120,8 +120,24 @@ async def main():
         # Parse fields if provided
         fields = None
         if args.fields:
-            fields = [field.strip() for field in args.fields.split(',') if field.strip()]
-            logger.info(f"Using custom fields: {fields}")
+            # Check if fields is a file reference (starting with @)
+            if args.fields.startswith('@'):
+                # Read fields from file
+                fields_file = args.fields[1:]  # Remove the @ symbol
+                try:
+                    with open(fields_file, 'r') as f:
+                        field_content = f.read().strip()
+                        fields = [field.strip() for field in field_content.split(',') if field.strip()]
+                    logger.info(f"Loaded fields from file {fields_file}: {fields}")
+                except Exception as e:
+                    logger.error(f"Error reading fields file {fields_file}: {str(e)}")
+                    # Fall back to default fields
+                    fields = work_item_extractor.get_test_case_fields()
+                    logger.info(f"Falling back to default test case fields")
+            else:
+                # Parse fields directly from command line
+                fields = [field.strip() for field in args.fields.split(',') if field.strip()]
+                logger.info(f"Using custom fields: {fields}")
         else:
             fields = work_item_extractor.get_test_case_fields()
             logger.info(f"Using default test case fields")
@@ -131,7 +147,7 @@ async def main():
         
         # Use more explicit logging for debugging
         logger.info(f"Connecting to Azure DevOps at: {config.organization_url}")
-        logger.info(f"Using PAT authentication with username: {config.username}")
+        logger.info(f"Using PAT authentication")
         logger.info(f"Work item IDs being requested: {work_item_ids}")
         
         # Call the extract_work_items_batch method directly
