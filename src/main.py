@@ -94,13 +94,10 @@ async def main():
                 if "error" in extraction_result:
                     logger.error(f"Error: {extraction_result['error']}")
                 logger.error(f"Status: {status}")
-                
                 # Log additional errors if available
                 if "errors" in extraction_result:
                     for i, error in enumerate(extraction_result["errors"]):
                         logger.error(f"Additional error {i+1}: {error}")
-                        
-                logger.error(f"Check logs for details. Extraction directory: {extraction_result['extraction_path']}")
                 return
             
             logger.info(f"Extraction completed successfully")
@@ -117,9 +114,7 @@ async def main():
                 if "work_item_warnings" in extraction_result:
                     for i, warning in enumerate(extraction_result["work_item_warnings"]):
                         logger.warning(f"Work item warning {i+1}: {warning}")
-            
-            logger.info(f"The extracted data is saved in: {extraction_result['extraction_path']}")
-            
+                        
         elif args.csv:
             # Legacy: Extract specific test plans from CSV
             logger.info(f"Extracting specific test plans from CSV: {args.csv}")
@@ -140,12 +135,6 @@ async def main():
             if entity_type not in ["extraction_path", "csv_mapping", "project_name", "extraction_timestamp", "total_plans", "error", "errors", "warnings", "status"]:
                 count = len(entities) if isinstance(entities, list) else 1
                 logger.info(f"  Extracted {count} {entity_type}")
-        
-        # Log output location
-        output_dir = extraction_result["extraction_path"]
-        logger.info("Azure Test Plans data extraction has been completed successfully")
-        logger.info(f"The extracted data is saved in: {output_dir}")
-        logger.info("The extracted data is ready for mapping to Xray format")
         
     except Exception as e:
         logger.error(f"Error during extraction: {str(e)}", exc_info=True)
