@@ -44,6 +44,7 @@ class WorkItemExtractor:
             List of field names
         """
         return [
+            # Core fields
             "System.Id",
             "System.Title",
             "System.Description",
@@ -55,7 +56,14 @@ class WorkItemExtractor:
             "System.CreatedDate",
             "System.ChangedDate",
             "System.ChangedBy",
-            "Microsoft.VSTS.Common.Priority"
+            
+            # Test case specific fields
+            "Microsoft.VSTS.TCM.Steps",           # Contains steps, actions and expected results
+            "Microsoft.VSTS.TCM.Parameters",      # Test parameters
+            "Microsoft.VSTS.TCM.LocalDataSource", # Parameter values
+            "Microsoft.VSTS.TCM.Prerequisites",   # Preconditions
+            "Microsoft.VSTS.TCM.AutomationStatus", # Automation status
+            "Microsoft.VSTS.Common.Priority"      # Priority
         ]
     
     def extract_work_item_ids(self, test_cases: List[Dict[str, Any]]) -> List[int]:
