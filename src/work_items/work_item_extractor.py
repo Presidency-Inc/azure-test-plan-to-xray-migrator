@@ -48,18 +48,14 @@ class WorkItemExtractor:
             "System.Title",
             "System.Description",
             "System.State",
+            "System.WorkItemType",
             "System.Tags",
-            "Microsoft.VSTS.TCM.Steps",
-            "Microsoft.VSTS.TCM.Parameters",
-            "Microsoft.VSTS.TCM.LocalDataSource",
-            "Microsoft.VSTS.TCM.Prerequisites",
-            "Microsoft.VSTS.TCM.AutomationStatus",
-            "Microsoft.VSTS.Common.Priority",
             "System.AssignedTo",
             "System.CreatedBy",
             "System.CreatedDate",
             "System.ChangedDate",
             "System.ChangedBy",
+            "Microsoft.VSTS.Common.Priority"
         ]
     
     def extract_work_item_ids(self, test_cases: List[Dict[str, Any]]) -> List[int]:

@@ -129,8 +129,25 @@ async def main():
         # Extract work items
         logger.info(f"Extracting {len(work_item_ids)} work items")
         
-        # Call the extract_work_items_batch method directly instead of extract_test_case_work_items
+        # Use more explicit logging for debugging
+        logger.info(f"Connecting to Azure DevOps at: {config.organization_url}")
+        logger.info(f"Using PAT authentication with username: {config.username}")
+        logger.info(f"Work item IDs being requested: {work_item_ids}")
+        
+        # Call the extract_work_items_batch method directly
         work_items = await work_item_extractor.extract_work_items_batch(project, work_item_ids)
+        
+        # Add verbose logging about the response
+        if not work_items:
+            logger.error("No work items retrieved from Azure DevOps API")
+            logger.error("This could be due to: invalid IDs, permission issues, or API formatting errors")
+        else:
+            logger.info(f"Successfully retrieved {len(work_items)} work items from Azure DevOps")
+            for idx, item in enumerate(work_items):
+                item_id = item.get('id')
+                item_title = item.get('fields', {}).get('System.Title', 'Unknown')
+                logger.info(f"Work item {idx+1}: ID={item_id}, Title={item_title}")
+        
         extraction_result = {
             "work_items": work_items,
             "work_item_count": len(work_items),

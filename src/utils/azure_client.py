@@ -48,13 +48,25 @@ async def retry_async(func, *args, retries=3, delay=2, backoff=2, **kwargs):
             last_exception = e
             if retry_count < retries:  # No need to sleep after the last retry
                 logger = logging.getLogger(__name__)
-                logger.warning(f"Exception during {func.__name__}: {str(e)}. Retrying in {current_delay}s...")
+                
+                # Extract and log response body for HTTP errors
+                if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                    logger.warning(f"Exception during {func.__name__}: {str(e)}\nResponse Body: {e.response.text}. Retrying in {current_delay}s...")
+                else:
+                    logger.warning(f"Exception during {func.__name__}: {str(e)}. Retrying in {current_delay}s...")
+                
                 await asyncio.sleep(current_delay)
                 current_delay *= backoff  # Exponential backoff
             else:
                 # Last retry failed, re-raise the exception
                 logger = logging.getLogger(__name__)
-                logger.error(f"All {retries} retries failed for {func.__name__}: {str(e)}")
+                
+                # Extract and log response body for HTTP errors on final attempt
+                if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                    logger.error(f"All {retries} retries failed for {func.__name__}: {str(e)}\nResponse Body: {e.response.text}")
+                else:
+                    logger.error(f"All {retries} retries failed for {func.__name__}: {str(e)}")
+                    
                 raise
 
 class AzureDevOpsClient:
@@ -559,6 +571,13 @@ class AzureDevOpsClient:
             self.logger.info(f"Sending GET request to {api_url}")
             response = requests.get(api_url, headers=auth_header)
             self.logger.info(f"API Response Status: {response.status_code}")
+            
+            # Log the full response content if there's an error
+            if response.status_code >= 400:
+                self.logger.error(f"API Error Response: {response.text}")
+                self.logger.error(f"API Request URL: {api_url}")
+                self.logger.error(f"API Request Headers: {auth_header}")
+            
             response.raise_for_status()
             
             # Extract and parse the response
@@ -626,6 +645,13 @@ class AzureDevOpsClient:
             self.logger.info(f"Sending GET request to {api_url}")
             response = requests.get(api_url, headers=auth_header)
             self.logger.info(f"API Response Status: {response.status_code}")
+            
+            # Log the full response content if there's an error
+            if response.status_code >= 400:
+                self.logger.error(f"API Error Response: {response.text}")
+                self.logger.error(f"API Request URL: {api_url}")
+                self.logger.error(f"API Request Headers: {auth_header}")
+            
             response.raise_for_status()
             
             # Extract and parse the response
@@ -690,6 +716,13 @@ class AzureDevOpsClient:
             self.logger.info(f"Sending GET request to {api_url}")
             response = requests.get(api_url, headers=auth_header)
             self.logger.info(f"API Response Status: {response.status_code}")
+            
+            # Log the full response content if there's an error
+            if response.status_code >= 400:
+                self.logger.error(f"API Error Response: {response.text}")
+                self.logger.error(f"API Request URL: {api_url}")
+                self.logger.error(f"API Request Headers: {auth_header}")
+            
             response.raise_for_status()
             
             # Extract and parse the response
@@ -760,24 +793,41 @@ class AzureDevOpsClient:
             
             # Create the REST URL for work items
             org_url = self.config.organization_url.rstrip('/')
-            api_url = f"{org_url}/{project}/_apis/wit/workitems?ids={id_list_str}&api-version=7.0"
+            # Base URL for work items batch API
+            api_url = f"{org_url}/{project}/_apis/wit/workitems"
+            
+            # Create query parameters
+            params = {
+                'ids': id_list_str,
+                'api-version': '7.0'
+            }
             
             # Add fields parameter if provided
             if fields and len(fields) > 0:
-                fields_str = ','.join(fields)
-                api_url += f"&fields={fields_str}"
+                params['fields'] = ','.join(fields)
                 
-            self.logger.info(f"API URL: {api_url}")
+            # Log the full URL we're constructing
+            full_url = f"{api_url}?ids={id_list_str}&api-version=7.0"
+            if fields and len(fields) > 0:
+                full_url += f"&fields={','.join(fields)}"
+            self.logger.info(f"API URL being constructed: {full_url}")
             
             # Create auth header with PAT
             auth_header = {
                 'Authorization': f'Basic {self._get_basic_auth_string()}'
             }
             
-            # Use the requests library directly
+            # Use the requests library with params instead of building URL manually
             self.logger.info(f"Sending GET request to Azure DevOps API")
-            response = requests.get(api_url, headers=auth_header)
+            response = requests.get(api_url, params=params, headers=auth_header)
             self.logger.info(f"API Response Status: {response.status_code}")
+            
+            # Log the full response content if there's an error
+            if response.status_code >= 400:
+                self.logger.error(f"API Error Response: {response.text}")
+                self.logger.error(f"API Request URL: {api_url}")
+                self.logger.error(f"API Request Headers: {auth_header}")
+            
             response.raise_for_status()
             
             # Extract and parse the response
@@ -824,24 +874,39 @@ class AzureDevOpsClient:
             
             # Create the REST URL for the work item
             org_url = self.config.organization_url.rstrip('/')
-            api_url = f"{org_url}/{project}/_apis/wit/workitems/{work_item_id}?api-version=7.0"
+            api_url = f"{org_url}/{project}/_apis/wit/workitems/{work_item_id}"
+            
+            # Create query parameters
+            params = {
+                'api-version': '7.0'
+            }
             
             # Add fields parameter if provided
             if fields and len(fields) > 0:
-                fields_str = ','.join(fields)
-                api_url += f"&fields={fields_str}"
+                params['fields'] = ','.join(fields)
                 
-            self.logger.info(f"API URL: {api_url}")
+            # Log the full URL we're constructing
+            full_url = f"{api_url}?api-version=7.0"
+            if fields and len(fields) > 0:
+                full_url += f"&fields={','.join(fields)}"
+            self.logger.info(f"API URL being constructed: {full_url}")
             
             # Create auth header with PAT
             auth_header = {
                 'Authorization': f'Basic {self._get_basic_auth_string()}'
             }
             
-            # Use the requests library directly
+            # Use the requests library with params instead of building URL manually
             self.logger.info(f"Sending GET request to Azure DevOps API")
-            response = requests.get(api_url, headers=auth_header)
+            response = requests.get(api_url, params=params, headers=auth_header)
             self.logger.info(f"API Response Status: {response.status_code}")
+            
+            # Log the full response content if there's an error
+            if response.status_code >= 400:
+                self.logger.error(f"API Error Response: {response.text}")
+                self.logger.error(f"API Request URL: {api_url}")
+                self.logger.error(f"API Request Headers: {auth_header}")
+            
             response.raise_for_status()
             
             # Extract and parse the response
@@ -893,6 +958,13 @@ class AzureDevOpsClient:
             self.logger.info(f"Sending GET request to Azure DevOps API")
             response = requests.get(api_url, headers=auth_header)
             self.logger.info(f"API Response Status: {response.status_code}")
+            
+            # Log the full response content if there's an error
+            if response.status_code >= 400:
+                self.logger.error(f"API Error Response: {response.text}")
+                self.logger.error(f"API Request URL: {api_url}")
+                self.logger.error(f"API Request Headers: {auth_header}")
+            
             response.raise_for_status()
             
             # Extract and parse the response
@@ -987,6 +1059,13 @@ class AzureDevOpsClient:
             self.logger.info(f"Sending GET request to download attachment")
             response = requests.get(attachment_url, headers=auth_header)
             self.logger.info(f"API Response Status: {response.status_code}")
+            
+            # Log the full response content if there's an error
+            if response.status_code >= 400:
+                self.logger.error(f"API Error Response: {response.text}")
+                self.logger.error(f"API Request URL: {attachment_url}")
+                self.logger.error(f"API Request Headers: {auth_header}")
+            
             response.raise_for_status()
             
             # Return the raw content
