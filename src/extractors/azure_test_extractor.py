@@ -876,6 +876,40 @@ class AzureTestExtractor:
                                 tc["planId"] = plan_id
                                 tc["suiteId"] = suite_id
                             
+                            # Collect all work item IDs from the test cases
+                            work_item_ids = [tc.get("workItemId") for tc in test_cases if tc.get("workItemId")]
+                            
+                            if work_item_ids:
+                                try:
+                                    # Get work items in batches of 200 (Azure DevOps limit)
+                                    batch_size = 200
+                                    work_items_map = {}
+                                    
+                                    for i in range(0, len(work_item_ids), batch_size):
+                                        batch_ids = work_item_ids[i:i + batch_size]
+                                        batch_items = await self.client.get_work_items_batch(batch_ids)
+                                        if batch_items:
+                                            work_items_map.update({str(item.get("id")): item for item in batch_items})
+                                    
+                                    # Add work item data to test cases
+                                    for tc in test_cases:
+                                        work_item_id = tc.get("workItemId")
+                                        if work_item_id:
+                                            tc["workItemData"] = work_items_map.get(str(work_item_id))
+                                            if not tc["workItemData"]:
+                                                tc["workItemError"] = f"Work item {work_item_id} not found in batch response"
+                                        else:
+                                            tc["workItemData"] = None
+                                            tc["workItemError"] = "No work item ID found for test case"
+                                            
+                                except Exception as e:
+                                    error_msg = f"Error fetching work items in batch: {str(e)}"
+                                    self.logger.error(error_msg)
+                                    # Mark all test cases as failed
+                                    for tc in test_cases:
+                                        tc["workItemData"] = None
+                                        tc["workItemError"] = error_msg
+                            
                             all_test_cases.extend(test_cases)
                             
                         except Exception as e:
@@ -910,52 +944,7 @@ class AzureTestExtractor:
             else:
                 result["status"] = "Success"
             
-            # 3. Extract work items for test cases
-            if all_test_cases:
-                self.logger.info("Extracting work item data for test cases...")
-                try:
-                    # Initialize work item extractor and processor
-                    work_item_extractor = WorkItemExtractor(self.client)
-                    work_item_processor = WorkItemProcessor()
-                    
-                    # Extract work item IDs from test cases
-                    work_item_ids = work_item_extractor.extract_work_item_ids(all_test_cases)
-                    self.logger.info(f"Found {len(work_item_ids)} unique work item IDs to extract")
-                    
-                    # Get fields needed for test cases
-                    test_case_fields = work_item_extractor.get_test_case_fields()
-                    
-                    # Extract work items
-                    extraction_result = await work_item_extractor.extract_test_case_work_items(
-                        work_item_ids, 
-                        test_case_fields
-                    )
-                    
-                    # Process the work items to extract structured data
-                    work_items = extraction_result.get("work_items", [])
-                    self.logger.info(f"Processing {len(work_items)} work items")
-                    processed_work_items = work_item_processor.process_work_items(work_items)
-                    
-                    # Enhance test cases with work item data
-                    enhanced_test_cases = work_item_processor.enhance_test_cases(all_test_cases, processed_work_items)
-                    
-                    # Update result with work item data
-                    result["work_items"] = processed_work_items
-                    result["enhanced_test_cases"] = enhanced_test_cases
-                    result["work_item_extraction_status"] = extraction_result.get("status", "Unknown")
-                    
-                    # Save work items
-                    work_item_processor.save_work_items(processed_work_items, str(extraction_dir / 'work_items.json'))
-                    
-                    # Save enhanced test cases
-                    work_item_processor.save_enhanced_test_cases(enhanced_test_cases, str(extraction_dir / 'enhanced_test_cases.json'))
-                    
-                    self.logger.info(f"Work item extraction completed: {extraction_result.get('status', 'Unknown')}")
-                except Exception as e:
-                    error_msg = f"Error extracting work items: {str(e)}"
-                    self.logger.error(error_msg, exc_info=True)
-                    result["errors"] = result.get("errors", []) + [error_msg]
-                    result["work_item_extraction_status"] = "ERROR: Failed to extract work items"
+            # Work item data is now extracted inline with each test case
             
             # 4. Save the extracted data
             self.logger.info(f"Extraction completed. Saving results...")
