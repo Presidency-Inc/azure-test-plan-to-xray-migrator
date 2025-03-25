@@ -590,8 +590,13 @@ class AzureDevOpsClient:
             if plans and len(plans) > 0:
                 sample_plan = plans[0].copy()
                 self.logger.info(f"API SAMPLE RESULT: First plan ID: {sample_plan.get('id')}, Name: {sample_plan.get('name')}")
+
+                self.logger.info(f"API RESULT: First plan: {plans[0]}")
             
-            return plans
+                return [plans[0]] if plans else []
+            else:
+                self.logger.warning("API RESULT: No test plans found in project '{project}'")
+                return []
         
         try:
             # Use retry logic
@@ -798,20 +803,11 @@ class AzureDevOpsClient:
             
             # Create query parameters
             params = {
+                '$expand': 'all',
                 'ids': id_list_str,
                 'api-version': '7.0'
             }
-            
-            # Add fields parameter if provided
-            if fields and len(fields) > 0:
-                params['fields'] = ','.join(fields)
-                
-            # Log the full URL we're constructing
-            full_url = f"{api_url}?ids={id_list_str}&api-version=7.0"
-            if fields and len(fields) > 0:
-                full_url += f"&fields={','.join(fields)}"
-            self.logger.info(f"API URL being constructed: {full_url}")
-            
+              
             # Create auth header with PAT
             auth_header = {
                 'Authorization': f'Basic {self._get_basic_auth_string()}'
@@ -839,6 +835,12 @@ class AzureDevOpsClient:
             # Log a sample work item for debugging
             if work_items and len(work_items) > 0:
                 sample_wi = work_items[0].copy()
+
+
+                self.logger.info("-------------------------------------")
+                self.logger.info(f"API SAMPLE RESULT: Work item {sample_wi}")
+                self.logger.info("-------------------------------------")
+
                 if 'fields' in sample_wi:
                     # Mask potentially sensitive data in fields
                     field_keys = list(sample_wi['fields'].keys())
@@ -874,21 +876,22 @@ class AzureDevOpsClient:
             
             # Create the REST URL for the work item
             org_url = self.config.organization_url.rstrip('/')
+            # Construct base API URL
             api_url = f"{org_url}/{project}/_apis/wit/workitems/{work_item_id}"
-            
+
             # Create query parameters
             params = {
+                '$expand': 'all',
                 'api-version': '7.0'
             }
-            
+
             # Add fields parameter if provided
-            if fields and len(fields) > 0:
+            if fields:
                 params['fields'] = ','.join(fields)
-                
-            # Log the full URL we're constructing
-            full_url = f"{api_url}?api-version=7.0"
-            if fields and len(fields) > 0:
-                full_url += f"&fields={','.join(fields)}"
+
+            # Log the full URL being constructed
+            import urllib.parse
+            full_url = f"{api_url}?{urllib.parse.urlencode(params)}"
             self.logger.info(f"API URL being constructed: {full_url}")
             
             # Create auth header with PAT
