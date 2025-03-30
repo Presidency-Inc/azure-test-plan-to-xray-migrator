@@ -8,6 +8,9 @@ import os
 import sys
 import requests
 import base64
+from src.utils.attachment_extractor import get_attached_files, download_azure_attachment
+from src.utils.json_utils import load_json, save_json_data
+
 
 # Add the project root to the Python path
 file_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -77,6 +80,8 @@ class AzureDevOpsClient:
         self._test_plan_client = None
         self._work_item_client = None
         self._git_client = None
+        self.attachment_custom_path = "attachments/extraction"
+        self.attachment_path_file = "work_item_attachments.json"
         self.logger = logging.getLogger(__name__)
         
     @property
@@ -593,10 +598,12 @@ class AzureDevOpsClient:
 
                 self.logger.info(f"API RESULT: First plan: {plans[0]}")
             
-                return [plans[0]] if plans else []
-            else:
-                self.logger.warning("API RESULT: No test plans found in project '{project}'")
-                return []
+            #     return [plans[0]] if plans else []
+            # else:
+            #     self.logger.warning("API RESULT: No test plans found in project '{project}'")
+            #     return []
+
+            return plans # Original code - this will extract all data
         
         try:
             # Use retry logic
@@ -832,22 +839,56 @@ class AzureDevOpsClient:
             
             self.logger.info(f"API RESULT: Successfully retrieved {len(work_items)} work items")
             
+            # Load existing attachment data - JSON file
+            attachment_data = load_json(f"{self.attachment_custom_path}/{self.attachment_path_file}")
+            
             # Log a sample work item for debugging
             if work_items and len(work_items) > 0:
-                sample_wi = work_items[0].copy()
+                # Extract attachments
+                for workItem in work_items:
+                    workitem_id = workItem.get("id", "")
 
+                    self.logger.info(f"[EXTRACTION] - Work item {workitem_id} details: {workItem}")
 
-                self.logger.info("-------------------------------------")
-                self.logger.info(f"API SAMPLE RESULT: Work item {sample_wi}")
-                self.logger.info("-------------------------------------")
+                    attached_files = get_attached_files(workItem)
 
-                if 'fields' in sample_wi:
-                    # Mask potentially sensitive data in fields
-                    field_keys = list(sample_wi['fields'].keys())
-                    self.logger.info(f"API SAMPLE RESULT: Work item ID: {sample_wi.get('id')}, Field count: {len(field_keys)}, Sample fields: {field_keys[:5]}")
-                else:
-                    self.logger.info(f"API SAMPLE RESULT: Work item ID: {sample_wi.get('id')}, no fields found")
-            
+                    if(attached_files):
+                        for attached_file in attached_files:
+                            attributes = attached_file.get("attributes", {})
+                            name = attributes.get("name", "")
+                            file_id = attributes.get("id", "")
+                            file_name = f"{workitem_id}_{name}"
+
+                            attachment_item_reference = f"{workitem_id}_{file_id}"
+
+                            # Check if workitem_id exists
+                            if attachment_item_reference not in attachment_data:
+                                new_attachment_item = {
+                                    "project": project,
+                                    "work_item_id": workitem_id,
+                                    "file_name": file_name,
+                                    "og_name": name,
+                                    "file_id": file_id
+                                }
+
+                                # Add new item to attachment_data
+                                attachment_data[attachment_item_reference] = new_attachment_item
+
+                            success, message = download_azure_attachment(
+                                attached_file["url"], 
+                                self.config.personal_access_token, 
+                                output_filename=file_name,
+                                output_directory="./attachments"
+                            )
+
+                            if(success):
+                                self.logger.info(f"[EXTRACTION] - {file_name}: {message}")
+                            else:
+                                raise Exception(message)
+                                
+                        print(len(attached_files))
+
+                save_json_data(attachment_data, self.attachment_path_file, base_path=self.attachment_custom_path)
             return work_items
         
         try:

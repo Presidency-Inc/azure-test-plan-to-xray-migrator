@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -17,4 +18,13 @@ def save_json_data(data: Any, filename: str, base_path: str = "data/extraction")
     
     file_path = path / filename
     with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, cls=DateTimeEncoder, indent=2, ensure_ascii=False) 
+        json.dump(data, f, cls=DateTimeEncoder, indent=2, ensure_ascii=False)
+
+def load_json(filename):
+    if os.path.exists(filename):
+        with open(filename, "r", encoding="utf-8") as file:
+            try:
+                return json.load(file)
+            except json.JSONDecodeError:
+                return {}
+    return {}
