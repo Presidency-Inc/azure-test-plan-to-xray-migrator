@@ -533,7 +533,6 @@ def map_test_case(test_case, sections_data, project_key, target_info, jiraClient
 
                             logger.debug(f"Attached process response: {attached_process}")
                             
-                            # self_link = f"{os.getenv('JIRA_URL')}/wiki{attachment_data['results'][0]['_links']['webui']}"
                             self_link = f"{os.getenv('JIRA_URL')}/wiki/pages/viewpageattachments.action?pageId={page_data['id']}"
                 xrayClient.test_cases_attachment_files[attachment_reference]["confluence_url"] = self_link
                 xrayClient.test_cases_attachment_files[attachment_reference]["test_case_title"] = file_title
