@@ -287,17 +287,17 @@ class XrayClient:
 
             logger.debug(f"Found suite: {current}")
 
-            # Collect all parts of the path (we'll reverse them later)
+            # Collect all parts of the path
             suite_parts = []
 
             # Get the test plan name (root level)
-            if 'planId' in current:
-                plan_name = next((suite['plan']['name'] for suite in suites_data if suite['plan']['id'] == current['planId']), None)
-                if plan_name:
-                    path_parts.append(plan_name)
-                    logger.debug(f"Appended plan_name: {plan_name}")
-                else:
-                    logger.warning(f"Plan name for planId {current['planId']} not found")
+            # if 'planId' in current:
+            #     plan_name = next((suite['plan']['name'] for suite in suites_data if suite['plan']['id'] == current['planId']), None)
+            #     if plan_name:
+            #         path_parts.append(plan_name)
+            #         logger.debug(f"Appended plan_name: {plan_name}")
+            #     else:
+            #         logger.warning(f"Plan name for planId {current['planId']} not found")
 
             # Traverse up the suite hierarchy using parentSuite
             while current:
@@ -467,6 +467,7 @@ def map_test_case(test_case, sections_data, project_key, target_info, jiraClient
         }
 
         work_item_obj = test_case.get('workItemData', {})
+        logger.debug(f"Work item object for test case {test_case.get('id')}: {work_item_obj}")
     
         # Log initial mapping details
         logger.debug(f"Initial mapping created with project key: {project_key}")
@@ -478,7 +479,18 @@ def map_test_case(test_case, sections_data, project_key, target_info, jiraClient
 
         # Map basic fields
         mapped_test['fields']['summary'] = test_case.get('testCaseTitle', '').replace('\n', '').strip()
-        mapped_test['fields']['description'] = f"WorkItem: {work_item_obj.get('id')} in suite {test_case.get('suiteId')}"
+
+        # Automation status
+        automation_status_field = work_item_obj['fields'].get('Microsoft.VSTS.TCM.AutomationStatus')
+        logger.debug(f"Automation status field for test case {test_case.get('id')}: {automation_status_field}")
+        mapped_test['fields']['description'] = mapped_test['fields'].get('description', '') + f"*Automation status:* {automation_status_field}\n" + '\n-----------------\n'
+        # State
+        state_field = work_item_obj['fields'].get('System.State')
+        mapped_test['fields']['description'] = mapped_test['fields'].get('description', '') + f"*State:* {state_field}\n" + '\n-----------------\n'
+        # Tags
+        tags_field = work_item_obj["fields"].get('System.Tags', '')
+        if(tags_field):
+            mapped_test['fields']['description'] = mapped_test['fields'].get('description', '') + f"*Tags:* {tags_field}\n" + '\n-----------------\n'
 
 
         # # ------- Attachments -------
@@ -541,10 +553,7 @@ def map_test_case(test_case, sections_data, project_key, target_info, jiraClient
                 json.dump(xrayClient.test_cases_attachment_files, f, indent=4)
                 logger.debug(f"Successfully updated {xrayClient.attachment_files_path}")
 
-            description = mapped_test['fields'].get('description', '')
-            mapped_test['fields']['description'] = description + f"*Attachment Files Link:* {self_link}\n" + '\n-----------------\n'
-    
-
+            mapped_test['fields']['description'] = mapped_test['fields'].get('description', '') + f"*Attachment Files Link:* {self_link}\n" + '\n-----------------\n'
         # ------- Attachments -------
         
         # Map priority with enhanced debug logging
