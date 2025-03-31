@@ -505,15 +505,14 @@ def map_test_case(test_case, sections_data, project_key, target_info, jiraClient
 
             for attached_file in work_item_attached_files:
                 attachment_reference = f"{work_item_obj.get('id')}_{attached_file.get('attributes', {}).get('id')}"
+                file_title = f"{test_case.get('id')} - {test_case.get('testCaseTitle')}"
                             
                 test_case_attachment_obj = xrayClient.test_cases_attachment_files[attachment_reference]
                 if(test_case_attachment_obj):
-                    # stored_data = item["stored_data"]
 
                     if("confluence_url" in test_case_attachment_obj and test_case_attachment_obj["confluence_url"]):
                         self_link = test_case_attachment_obj["confluence_url"]
                     else:
-                        file_title = f"{test_case.get('id')} - {test_case.get('testCaseTitle')}"
                         try:
                             # creating confluence page to attach file and get the link
                             page_data = jiraClient.create_page(
@@ -706,12 +705,12 @@ def main():
                 uniqueStrings = list(uniqueStrings)
 
                 logger.info(f"Found {len(uniqueStrings)} unique folder paths for project {source_plan_id}_{source_suite_id}")
-                # client.create_folder_structure(uniqueStrings, target_info['project_target_id'])
+                client.create_folder_structure(uniqueStrings, target_info['project_target_id'])
                 
                 # Save mapped tests to file
                 if mapped_tests:
                     logger.info(f"Saving {len(mapped_tests)} mapped tests to file")
-                    folder_path = os.path.join(os.path.dirname(__file__), 'importFiles')
+                    folder_path = os.path.join(os.path.dirname(__file__), '../importFiles')
                     os.makedirs(folder_path, exist_ok=True)
                     
                     output_file = os.path.join(folder_path, f'test_cases_{source_plan_id}_{source_suite_id}.json')
