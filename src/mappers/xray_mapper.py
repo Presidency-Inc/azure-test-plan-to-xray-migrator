@@ -483,7 +483,9 @@ def map_test_case(test_case, sections_data, project_key, target_info, jiraClient
         # Automation status
         automation_status_field = work_item_obj['fields'].get('Microsoft.VSTS.TCM.AutomationStatus')
         logger.debug(f"Automation status field for test case {test_case.get('id')}: {automation_status_field}")
-        mapped_test['fields']['description'] = mapped_test['fields'].get('description', '') + f"*Automation status:* {automation_status_field}\n" + '\n-----------------\n'
+        mapped_test['fields']['customfield_10091'] = {
+            "value": automation_status_field if automation_status_field == 'Not Automated' else 'Complete'
+        }
         # State
         state_field = work_item_obj['fields'].get('System.State')
         mapped_test['fields']['description'] = mapped_test['fields'].get('description', '') + f"*State:* {state_field}\n" + '\n-----------------\n'
