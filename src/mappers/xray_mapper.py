@@ -483,9 +483,12 @@ def map_test_case(test_case, sections_data, project_key, target_info, jiraClient
         # Automation status
         automation_status_field = work_item_obj['fields'].get('Microsoft.VSTS.TCM.AutomationStatus')
         logger.debug(f"Automation status field for test case {test_case.get('id')}: {automation_status_field}")
-        mapped_test['fields']['customfield_10091'] = {
-            "value": automation_status_field if automation_status_field == 'Not Automated' else 'Complete'
+
+        mapped_test['fields']['customfield_15904'] = {
+            "value": automation_status_field if automation_status_field == 'Not Automated' else 'Completed'
         }
+        
+
         # State
         state_field = work_item_obj['fields'].get('System.State')
         mapped_test['fields']['description'] = mapped_test['fields'].get('description', '') + f"*State:* {state_field}\n" + '\n-----------------\n'
@@ -494,6 +497,9 @@ def map_test_case(test_case, sections_data, project_key, target_info, jiraClient
         if(tags_field):
             mapped_test['fields']['description'] = mapped_test['fields'].get('description', '') + f"*Tags:* {tags_field}\n" + '\n-----------------\n'
 
+        # Azure reference URL
+        azure_reference_url = f"https://dev.azure.com/AssetmarkInc/eWM30/_workitems/edit/{work_item_obj.get('id')}"
+        mapped_test['fields']['description'] = mapped_test['fields'].get('description', '') + f"*Azure reference:* {azure_reference_url}\n" + '\n-----------------\n'
 
         # # ------- Attachments -------
         work_item_attached_files = get_attached_files(work_item_obj)

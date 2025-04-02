@@ -5,7 +5,7 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
 class TestCaseBatcher:
-    def __init__(self, chunk_size=2):
+    def __init__(self, chunk_size=200):
         self.chunk_size = chunk_size
         # Fix paths to be relative to script location
         self.base_dir = os.path.dirname(__file__)
