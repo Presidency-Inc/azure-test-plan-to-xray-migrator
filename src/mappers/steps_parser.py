@@ -14,29 +14,47 @@ def get_attached_files(workItem):
     return attached_files
 
 def parse_steps(xml_string):
-    root = ET.fromstring(xml_string)
-    steps = []
-    
-    for step in root.findall("step"):
-        parameterized_strings = step.findall("parameterizedString")
+    if not xml_string:
+        return []
         
-        # Extract text content from HTML without the HTML tags
-        def extract_text(html_string):
-            if not html_string:
-                return ""
-            # Create a parser to extract just the text content
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(html_string, 'html.parser')
-            return soup.get_text().strip()
+    try:
+        root = ET.fromstring(xml_string)
+        steps = []
         
-        action = extract_text(html.unescape(parameterized_strings[0].text)) if len(parameterized_strings) > 0 else ""
-        data = extract_text(html.unescape(parameterized_strings[1].text)) if len(parameterized_strings) > 1 else ""
-        result = extract_text(html.unescape(parameterized_strings[2].text)) if len(parameterized_strings) > 2 else ""
+        for step in root.findall("step"):
+            parameterized_strings = step.findall("parameterizedString")
+            
+            # Extract text content from HTML without the HTML tags
+            def extract_text(html_string):
+                if not html_string:
+                    return ""
+                # Create a parser to extract just the text content
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html_string, 'html.parser')
+                return soup.get_text().strip()
+            
+            # Safely access parameterized_strings elements
+            action = ""
+            data = ""
+            result = ""
+            
+            if parameterized_strings and len(parameterized_strings) > 0:
+                if parameterized_strings[0].text is not None:
+                    action = extract_text(html.unescape(parameterized_strings[0].text))
+                
+                if len(parameterized_strings) > 1 and parameterized_strings[1].text is not None:
+                    data = extract_text(html.unescape(parameterized_strings[1].text))
+                
+                if len(parameterized_strings) > 2 and parameterized_strings[2].text is not None:
+                    result = extract_text(html.unescape(parameterized_strings[2].text))
+            
+            steps.append({
+                "action": action,
+                "data": data,
+                "result": result
+            })
         
-        steps.append({
-            "action": action,
-            "data": data,
-            "result": result
-        })
-    
-    return steps
+        return steps
+    except ET.ParseError:
+        # Handle case where xml_string is not valid XML
+        return []
