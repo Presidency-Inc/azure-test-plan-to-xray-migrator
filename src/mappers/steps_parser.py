@@ -27,16 +27,16 @@ def parse_steps(xml_string):
             # Extract text content from HTML without the HTML tags
             def extract_text(html_string):
                 if not html_string:
-                    return ""
+                    return "--"
                 # Create a parser to extract just the text content
                 from bs4 import BeautifulSoup
                 soup = BeautifulSoup(html_string, 'html.parser')
-                return soup.get_text().strip()
+                return soup.get_text().strip() or "--"
             
             # Safely access parameterized_strings elements
-            action = ""
-            data = ""
-            result = ""
+            action = "--"
+            data = "--"
+            result = "--"
             
             if parameterized_strings and len(parameterized_strings) > 0:
                 if parameterized_strings[0].text is not None:
