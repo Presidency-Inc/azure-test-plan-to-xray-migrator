@@ -24,18 +24,52 @@ def parse_steps(xml_string):
         for step in root.findall("step"):
             parameterized_strings = step.findall("parameterizedString")
             
-            # Extract text content from HTML without the HTML tags
+            # Extract text content from HTML with proper line breaks for block elements
             def extract_text(html_string):
                 if not html_string:
                     return "--"
-                # Create a parser to extract just the text content
-                from bs4 import BeautifulSoup
+                # Create a parser to extract the text content with proper formatting
+                from bs4 import BeautifulSoup, NavigableString
+                import re
+                
                 soup = BeautifulSoup(html_string, 'html.parser')
-                return soup.get_text().strip() or "--"
+                
+                # Function to handle block elements and add line breaks
+                def process_element(element):
+                    texts = []
+                    for child in element.children:
+                        if isinstance(child, NavigableString):
+                            text = child.strip()
+                            if text:
+                                texts.append(text)
+                        else:
+                            # Add line breaks before block elements
+                            if child.name in ['p', 'ul', 'ol', 'li', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                                if texts and not texts[-1].endswith('\n'):
+                                    texts.append('\n')
+                            
+                            # Process the child element
+                            child_text = process_element(child)
+                            if child_text:
+                                texts.append(child_text)
+                            
+                            # Add line breaks after block elements
+                            if child.name in ['p', 'ul', 'ol', 'li', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br']:
+                                texts.append('\n')
+                    
+                    return ' '.join(texts)
+                
+                # Process the entire soup
+                result = process_element(soup)
+                
+                # Clean up excessive whitespace and line breaks
+                result = re.sub(r'\s*\n\s*', '\n', result)
+                result = re.sub(r'\n{3,}', '\n\n', result)
+                
+                return result.strip() or "--"
             
             # Safely access parameterized_strings elements
             action = "--"
-            data = "--"
             result = "--"
             
             if parameterized_strings and len(parameterized_strings) > 0:
@@ -43,14 +77,10 @@ def parse_steps(xml_string):
                     action = extract_text(html.unescape(parameterized_strings[0].text))
                 
                 if len(parameterized_strings) > 1 and parameterized_strings[1].text is not None:
-                    data = extract_text(html.unescape(parameterized_strings[1].text))
-                
-                if len(parameterized_strings) > 2 and parameterized_strings[2].text is not None:
-                    result = extract_text(html.unescape(parameterized_strings[2].text))
-            
+                    result = extract_text(html.unescape(parameterized_strings[1].text))
+                            
             steps.append({
                 "action": action,
-                "data": data,
                 "result": result
             })
         
