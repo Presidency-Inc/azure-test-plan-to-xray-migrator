@@ -636,6 +636,64 @@ def validate_test_case(mapped_test):
     if missing_fields:
         raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
 
+def get_nested_children_path(source_suite_id, sections_data):
+    """
+    Recursively find all leaf-level child suites.
+    
+    Args:
+        source_suite_id: ID of the parent suite
+        sections_data: List of all suites
+        
+    Returns:
+        List of IDs of all leaf-level child suites (suites that don't have children)
+    """
+    # Find the current suite in the data
+    current_suite = next((section for section in sections_data if str(section.get('id')) == str(source_suite_id)), None)
+    
+    if not current_suite:
+        logger.warning(f"Suite {source_suite_id} not found in sections data")
+        return []
+    
+    # If this suite has children, find them
+    if current_suite.get('hasChildren'):
+        # Find all direct children of this suite
+        children = [section for section in sections_data 
+                   if section.get('parentSuite') and str(section.get('parentSuite').get('id')) == str(source_suite_id)]
+        
+        if children:
+            # Sort children by ID to ensure consistent processing
+            children.sort(key=lambda x: x.get('id'))
+            
+            # Collect all leaf-level child IDs
+            all_leaf_ids = []
+            
+            for child in children:
+                child_id = str(child.get('id'))
+                # Recursively get leaf-level children for this child
+                child_leaf_ids = get_nested_children_path(child_id, sections_data)
+                
+                # Add all leaf-level children found
+                if child_leaf_ids:
+                    all_leaf_ids.extend(child_leaf_ids)
+                else:
+                    # If no children found but this is a leaf node, add it
+                    if not child.get('hasChildren'):
+                        all_leaf_ids.append(child_id)
+            
+            # If we found leaf children, return them
+            if all_leaf_ids:
+                return all_leaf_ids
+            
+            # No leaf children found, use this suite as leaf
+            return [source_suite_id]
+        else:
+            # No children found, but this is marked as having children (inconsistency)
+            logger.warning(f"Suite {source_suite_id} is marked as having children but no children found")
+            return [source_suite_id]
+    
+    # This is a leaf node (no children)
+    return [source_suite_id]
+
 def main():
     try:
         logger.info("Starting Xray test import process")
@@ -674,6 +732,27 @@ def main():
             try:
                 mapped_tests = []
 
+                # Find the current suite in sections_data
+                current_suite = next((suite for suite in sections_data if str(suite.get('id')) == source_suite_id), None)
+                
+                # Check if suite has children
+                if current_suite and current_suite.get('hasChildren', False):
+                    logger.info(f"Suite {source_suite_id} has children, will process all child suites")
+                    
+                    # Get all leaf-level child suite IDs using get_nested_children_path
+                    leaf_suite_ids = get_nested_children_path(source_suite_id, sections_data)
+                    
+                    if leaf_suite_ids:     
+                        logger.info(f"Found {len(leaf_suite_ids)} leaf-level child suites for parent suite {source_suite_id}")
+                        logger.debug(f"Leaf suite IDs: {leaf_suite_ids}")
+                        effective_suite_ids = [str(suite_id) for suite_id in leaf_suite_ids]
+                    else:
+                        logger.warning(f"No leaf suites found for parent suite {source_suite_id}, will use original suite ID")
+                        effective_suite_ids = [source_suite_id]
+                else:
+                    logger.info(f"Suite {source_suite_id} does not have children, processing normally")
+                    effective_suite_ids = [source_suite_id]
+
                 scope_client.update_current_scope(source_plan_id, source_suite_id)
                 target_info = scope_client.get_current_target_info()
                 logger.debug(f"Target info for project mode: {json.dumps(target_info, indent=2)}")
@@ -682,12 +761,15 @@ def main():
 
                 for test_case in test_cases:
                     try:
-                        if not (str(test_case.get('planId')) == source_plan_id and str(test_case.get('suiteId')) == source_suite_id):
+                        test_suite_id = str(test_case.get('suiteId'))
+                        test_plan_id = str(test_case.get('planId'))
+                        
+                        # Check if this test case belongs to any of our effective suite IDs
+                        if test_plan_id != source_plan_id or test_suite_id not in effective_suite_ids:
                             # Ignore test data
                             continue
 
-
-                        logger.debug(f"Mapping test case {test_case.get('id')}")
+                        logger.debug(f"Mapping test case {test_case.get('id')} from suite {test_suite_id}")
                         mapped_test = map_test_case(test_case, sections_data, 
                             target_info['project_target_key'], target_info, jiraClient, client)
                         logger.debug(f"Successfully mapped test case {test_case.get('id')}")
@@ -729,7 +811,11 @@ def main():
                     logger.warning(f"No test cases were mapped for project {source_plan_id}_{source_suite_id}")
 
                 processed_projects.add(source_suite_id)
-                logger.info(f"Successfully processed project {source_suite_id}")
+                # If we processed child suites, add them to processed_projects as well
+                if effective_suite_ids != [source_suite_id]:
+                    processed_projects.update(effective_suite_ids)
+                    
+                logger.info(f"Successfully processed project {source_suite_id} and its child suites")
                 
             except Exception as e:
                 logger.error(f"Error processing project {source_suite_id}: {str(e)}", exc_info=True)
