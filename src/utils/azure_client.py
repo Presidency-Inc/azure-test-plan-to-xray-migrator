@@ -560,11 +560,13 @@ class AzureDevOpsClient:
         """
         async def _get_test_plans():
             project = project_name or self.config.project_name
-            self.logger.info(f"API CALL: Getting all test plans for project '{project}' using modern API")
+            self.logger.info(f"API CALL: Getting test plan 218 for project '{project}' using modern API")
             
             # Create the REST URL for test plans
             org_url = self.config.organization_url.rstrip('/')
-            api_url = f"{org_url}/{project}/_apis/testplan/plans?api-version=7.0"
+            
+            # MODIFIED: Get plan 218 directly
+            api_url = f"{org_url}/{project}/_apis/testplan/plans/218?api-version=7.0"
             self.logger.info(f"API URL: {api_url}")
             
             # Create auth header with PAT
@@ -582,28 +584,34 @@ class AzureDevOpsClient:
                 self.logger.error(f"API Error Response: {response.text}")
                 self.logger.error(f"API Request URL: {api_url}")
                 self.logger.error(f"API Request Headers: {auth_header}")
+                
+                # If direct access fails, try the original approach to get all plans and filter
+                self.logger.info(f"Direct access to plan 218 failed, trying to get all plans and filter")
+                all_plans_url = f"{org_url}/{project}/_apis/testplan/plans?api-version=7.0"
+                all_plans_response = requests.get(all_plans_url, headers=auth_header)
+                
+                if all_plans_response.status_code >= 400:
+                    self.logger.error(f"API Error Response: {all_plans_response.text}")
+                    all_plans_response.raise_for_status()
+                    
+                all_plans_data = all_plans_response.json()
+                all_plans = all_plans_data.get('value', [])
+                plans = [plan for plan in all_plans if str(plan.get('id')) == '218']
+                
+                if plans:
+                    self.logger.info(f"Found plan 218 in the list of all plans")
+                    return plans
+                else:
+                    self.logger.error(f"Plan 218 not found in any API response")
+                    response.raise_for_status()  # Raise the original error
+            else:
+                # Direct access succeeded
+                plan_data = response.json()
+                self.logger.info(f"API RESULT: Successfully retrieved plan ID 218")
+                return [plan_data]
             
-            response.raise_for_status()
-            
-            # Extract and parse the response
-            data = response.json()
-            plans = data.get('value', [])
-            
-            self.logger.info(f"API RESULT: Successfully retrieved {len(plans)} test plans from project '{project}'")
-            
-            # Log the first plan as a sample (masked for privacy)
-            if plans and len(plans) > 0:
-                sample_plan = plans[0].copy()
-                self.logger.info(f"API SAMPLE RESULT: First plan ID: {sample_plan.get('id')}, Name: {sample_plan.get('name')}")
-
-                self.logger.info(f"API RESULT: First plan: {plans[0]}")
-            
-            #     return [plans[0]] if plans else []
-            # else:
-            #     self.logger.warning("API RESULT: No test plans found in project '{project}'")
-            #     return []
-
-            return plans # Original code - this will extract all data
+            # This line should not be reached if everything works correctly
+            return []
         
         try:
             # Use retry logic
@@ -637,53 +645,53 @@ class AzureDevOpsClient:
         """
         async def _get_test_suites():
             project = project_name or self.config.project_name
-            self.logger.info(f"API CALL: Getting all test suites for plan {plan_id} in project '{project}' using modern API")
+            self.logger.info(f"API CALL: Getting test suites for plan {plan_id} in project '{project}' using modern API")
             
             if not plan_id:
                 self.logger.error("API ERROR: Plan ID is required")
                 return []
             
+            # Skip if not plan 218
+            if str(plan_id) != '218':
+                self.logger.info(f"Plan ID {plan_id} is not 218, returning empty list")
+                return []
+                
             # Create the REST URL for test suites
             org_url = self.config.organization_url.rstrip('/')
-            api_url = f"{org_url}/{project}/_apis/testplan/Plans/{plan_id}/suites?api-version=7.0"
-            self.logger.info(f"API URL: {api_url}")
             
-            # Create auth header with PAT
-            auth_header = {
-                'Authorization': f'Basic {self._get_basic_auth_string()}'
-            }
+            # MODIFIED: Get only the specific suites we want
+            target_suite_ids = ['9035', '9036']
+            suites = []
             
-            # Use the requests library directly
-            self.logger.info(f"Sending GET request to {api_url}")
-            response = requests.get(api_url, headers=auth_header)
-            self.logger.info(f"API Response Status: {response.status_code}")
-            
-            # Log the full response content if there's an error
-            if response.status_code >= 400:
-                self.logger.error(f"API Error Response: {response.text}")
-                self.logger.error(f"API Request URL: {api_url}")
-                self.logger.error(f"API Request Headers: {auth_header}")
-            
-            response.raise_for_status()
-            
-            # Extract and parse the response
-            data = response.json()
-            suites = data.get('value', [])
-            
-            self.logger.info(f"API RESULT: Successfully retrieved {len(suites)} test suites from plan {plan_id}")
-            
-            # Log the first suite as a sample (masked for privacy)
-            if suites and len(suites) > 0:
-                sample_suite = suites[0].copy()
-                self.logger.info(f"API SAMPLE RESULT: First suite ID: {sample_suite.get('id')}, Name: {sample_suite.get('name')}")
+            # Get each suite directly
+            for suite_id in target_suite_ids:
+                api_url = f"{org_url}/{project}/_apis/testplan/Plans/{plan_id}/suites/{suite_id}?api-version=7.0"
+                self.logger.info(f"API URL for suite {suite_id}: {api_url}")
                 
-                # Log parent-child relationships for debugging
-                parent_ids = set()
+                # Create auth header with PAT
+                auth_header = {
+                    'Authorization': f'Basic {self._get_basic_auth_string()}'
+                }
+                
+                # Use the requests library directly
+                self.logger.info(f"Sending GET request to {api_url}")
+                response = requests.get(api_url, headers=auth_header)
+                self.logger.info(f"API Response Status for suite {suite_id}: {response.status_code}")
+                
+                # Process response
+                if response.status_code == 200:
+                    suite_data = response.json()
+                    suites.append(suite_data)
+                    self.logger.info(f"Successfully retrieved suite {suite_id}")
+                else:
+                    self.logger.error(f"Error retrieving suite {suite_id}: {response.text}")
+            
+            self.logger.info(f"API RESULT: Retrieved {len(suites)} suites for plan {plan_id}")
+            
+            # Log the suites for debugging
+            if suites:
                 for suite in suites:
-                    parent_id = suite.get('parentSuiteId')
-                    if parent_id:
-                        parent_ids.add(parent_id)
-                self.logger.info(f"API RESULT: Found {len(parent_ids)} unique parent suite IDs")
+                    self.logger.info(f"Suite ID: {suite.get('id')}, Name: {suite.get('name')}")
             
             return suites
         
