@@ -234,7 +234,7 @@ class XrayClient:
 
     def create_folder_structure(self, uniqueStrings, project_id):
         """
-        Create the folder structure for a list of unique folder paths.
+        Create the folder structure for a list of unique folder path strings.
 
         Args:
             uniqueStrings (list): List of unique folder path strings.
@@ -638,23 +638,26 @@ def validate_test_case(mapped_test):
 
 def get_nested_children_path(source_suite_id, sections_data):
     """
-    Recursively find all leaf-level child suites.
+    Recursively find all suites in the hierarchy, including parent and leaf suites.
     
     Args:
         source_suite_id: ID of the parent suite
         sections_data: List of all suites
         
     Returns:
-        List of IDs of all leaf-level child suites (suites that don't have children)
+        List of IDs of all suites in the hierarchy, including parent suites
     """
     # Find the current suite in the data
     current_suite = next((section for section in sections_data if str(section.get('id')) == str(source_suite_id)), None)
     
     if not current_suite:
-        logger.warning(f"Suite {source_suite_id} not found in sections data")
+        logger.warning(f"Suite {source_suite_id} not found in sections data during get_nested_children_path call")
         return []
     
-    # If this suite has children, find them
+    # Always include the current suite ID in the results
+    result_ids = [str(source_suite_id)]
+    
+    # If this suite has children, find and add them too
     if current_suite.get('hasChildren'):
         # Find all direct children of this suite
         children = [section for section in sections_data 
@@ -664,35 +667,71 @@ def get_nested_children_path(source_suite_id, sections_data):
             # Sort children by ID to ensure consistent processing
             children.sort(key=lambda x: x.get('id'))
             
-            # Collect all leaf-level child IDs
-            all_leaf_ids = []
-            
+            # Get all child IDs (recursively)
             for child in children:
                 child_id = str(child.get('id'))
-                # Recursively get leaf-level children for this child
-                child_leaf_ids = get_nested_children_path(child_id, sections_data)
-                
-                # Add all leaf-level children found
-                if child_leaf_ids:
-                    all_leaf_ids.extend(child_leaf_ids)
-                else:
-                    # If no children found but this is a leaf node, add it
-                    if not child.get('hasChildren'):
-                        all_leaf_ids.append(child_id)
-            
-            # If we found leaf children, return them
-            if all_leaf_ids:
-                return all_leaf_ids
-            
-            # No leaf children found, use this suite as leaf
-            return [source_suite_id]
-        else:
-            # No children found, but this is marked as having children (inconsistency)
-            logger.warning(f"Suite {source_suite_id} is marked as having children but no children found")
-            return [source_suite_id]
+                # Recursively get all children for this child
+                child_ids = get_nested_children_path(child_id, sections_data)
+                # Add all child IDs found
+                result_ids.extend(child_ids)
     
-    # This is a leaf node (no children)
-    return [source_suite_id]
+    return result_ids
+
+def get_ancestor_and_self_ids(start_suite_id, sections_data):
+    """
+    Collects the start_suite_id and all its direct ancestor suite IDs.
+    Traverses upwards from the start_suite_id using the parentSuite link.
+    
+    Args:
+        start_suite_id (str): The ID of the suite to start traversal from.
+        sections_data (list): List of all suite data dictionaries.
+        
+    Returns:
+        list: A list of suite IDs including the start_suite_id and all its ancestors.
+              Returns an empty list if the start_suite_id is not found.
+    """
+    logger.debug(f"Collecting ancestor IDs starting from suite {start_suite_id}")
+    ancestor_suite_ids = []
+
+    # Create a quick lookup map for efficiency
+    sections_map = {str(suite.get('id')): suite for suite in sections_data if suite.get('id')}
+
+    current_id = str(start_suite_id)
+
+    while current_id:
+        current_suite_obj = sections_map.get(current_id)
+
+        if not current_suite_obj:
+            logger.error(f"Suite ID {current_id} (part of ancestor chain for {start_suite_id}) not found in sections_data. Stopping upward traversal.")
+            # Decide if we should return partial list or empty
+            # Returning partial might be useful, but could also hide data issues.
+            # Let's return what we found so far, but log clearly.
+            break 
+
+        # Add the current suite ID to our list
+        if current_id not in ancestor_suite_ids: # Avoid duplicates if data is weird
+             ancestor_suite_ids.append(current_id)
+             logger.debug(f"Added suite {current_id} to ancestor list.")
+        else:
+             logger.warning(f"Detected potential loop or duplicate entry for suite {current_id} during ancestor traversal.")
+             break # Break to prevent infinite loop
+
+        # Get the parent suite ID
+        parent_info = current_suite_obj.get('parentSuite')
+        if not parent_info or not parent_info.get('id'):
+            logger.debug(f"Reached top-level suite (no parent found for {current_id}). Stopping upward traversal.")
+            current_id = None # No more parents, exit loop
+        else:
+            parent_id = str(parent_info.get('id'))
+            logger.debug(f"Moving from suite {current_id} up to parent {parent_id}.")
+            current_id = parent_id
+            
+    if not ancestor_suite_ids and str(start_suite_id) not in sections_map:
+         logger.error(f"The initial start_suite_id {start_suite_id} was not found in sections_data at all.")
+         return [] # Return empty list if the starting point itself wasn't found
+
+    logger.info(f"Collected {len(ancestor_suite_ids)} suite IDs (self and ancestors) for starting suite {start_suite_id}: {ancestor_suite_ids}")
+    return ancestor_suite_ids
 
 def main():
     try:
@@ -701,9 +740,6 @@ def main():
         scope_client = ScopeClient()
         jiraClient = JiraClient()
 
-        #  Processed projects could be a mix of plan id and suite id
-        processed_projects = set()
-
         logger.info(f"Loaded {scope_client.projects_counter()} projects to migrate")
 
         # Load sections data (suites.json)
@@ -711,7 +747,13 @@ def main():
             f'../../output/data/extraction/extracted_data/test_suites.json')
         with open(sections_file, 'r', encoding='utf-8') as f:
             sections_data = json.load(f)
-            logger.debug(f"Loaded {len(sections_data)} sections")
+            logger.debug(f"Loaded {len(sections_data)} sections (suites)")
+        
+        # Create a quick lookup map for sections_data by ID for efficiency (moved here for single load)
+        # sections_map = {str(suite.get('id')): suite for suite in sections_data if suite.get('id')}
+        # logger.debug(f"Created sections map with {len(sections_map)} entries.")
+        # Note: sections_map is created within find_branch_root_and_all_ids now
+
 
         test_cases_file = os.path.join(os.path.dirname(__file__), 
             f'../../output/data/extraction/extracted_data/test_cases.json')
@@ -720,106 +762,84 @@ def main():
             logger.info(f"Loaded {len(test_cases)} test cases")
 
         for project in scope_client.migration_projects:
-            source_plan_id = project['source_plan_id']
-            source_suite_id = project['source_suite_id']
-            logger.info(f"Processing project with source plan ID {source_plan_id} and source suite ID {source_suite_id}")
+            source_plan_id = str(project['source_plan_id'])
+            source_suite_id = str(project['source_suite_id']) # This is the suite ID from the scope file
+            logger.info(f"Processing scope entry: Plan ID {source_plan_id}, Suite ID {source_suite_id}")
             
-            # Skip already processed projects to avoid duplicates
-            if source_suite_id in processed_projects:
-                logger.info(f"Skipping already processed project {source_suite_id}")
+            # Find the complete set of suite IDs for the hierarchy branch
+            # containing source_suite_id within the source_plan_id.
+            effective_suite_ids = get_ancestor_and_self_ids(source_suite_id, sections_data)
+
+            if not effective_suite_ids:
+                logger.warning(f"Could not determine effective suite IDs for starting suite {source_suite_id}. Skipping this scope entry.")
                 continue
 
             try:
                 mapped_tests = []
-
-                # Find the current suite in sections_data
-                current_suite = next((suite for suite in sections_data if str(suite.get('id')) == source_suite_id), None)
                 
-                # Check if suite has children
-                if current_suite and current_suite.get('hasChildren', False):
-                    logger.info(f"Suite {source_suite_id} has children, will process all child suites")
-                    
-                    # Get all leaf-level child suite IDs using get_nested_children_path
-                    leaf_suite_ids = get_nested_children_path(source_suite_id, sections_data)
-                    
-                    if leaf_suite_ids:     
-                        logger.info(f"Found {len(leaf_suite_ids)} leaf-level child suites for parent suite {source_suite_id}")
-                        logger.debug(f"Leaf suite IDs: {leaf_suite_ids}")
-                        effective_suite_ids = [str(suite_id) for suite_id in leaf_suite_ids]
-                    else:
-                        logger.warning(f"No leaf suites found for parent suite {source_suite_id}, will use original suite ID")
-                        effective_suite_ids = [source_suite_id]
-                else:
-                    logger.info(f"Suite {source_suite_id} does not have children, processing normally")
-                    effective_suite_ids = [source_suite_id]
-
-                scope_client.update_current_scope(source_plan_id, source_suite_id)
+                scope_client.update_current_scope(source_plan_id, source_suite_id) # Keep using original source_suite_id for scope context if needed downstream
                 target_info = scope_client.get_current_target_info()
                 logger.debug(f"Target info for project mode: {json.dumps(target_info, indent=2)}")
 
-                uniqueStrings = set()
+                uniqueStrings = set() # For folder paths
 
                 for test_case in test_cases:
                     try:
                         test_suite_id = str(test_case.get('suiteId'))
                         test_plan_id = str(test_case.get('planId'))
                         
-                        # Check if this test case belongs to any of our effective suite IDs
+                        # Check if this test case belongs to the correct plan and any suite in our full branch list
                         if test_plan_id != source_plan_id or test_suite_id not in effective_suite_ids:
-                            # Ignore test data
-                            continue
+                            continue # Ignore test case
 
-                        logger.debug(f"Mapping test case {test_case.get('id')} from suite {test_suite_id}")
+                        logger.debug(f"Mapping test case {test_case.get('id')} from suite {test_suite_id} (Plan: {test_plan_id})")
                         mapped_test = map_test_case(test_case, sections_data, 
                             target_info['project_target_key'], target_info, jiraClient, client)
                         logger.debug(f"Successfully mapped test case {test_case.get('id')}")
                         
+                        # Folder path generation still uses the original test_case['suiteId']
                         if test_case.get('suiteId'):
+                            # Pass sections_data list to build_folder_path as it likely expects the original structure
                             folder_path = client.build_folder_path(test_case['suiteId'], sections_data, target_info['folder_path'])
                             if folder_path:
                                 mapped_test['xray_test_repository_folder'] = folder_path
                                 logger.debug(f"Added folder path: {folder_path}")
-
-                                # Add to set
-                                uniqueStrings.add(folder_path)
+                                uniqueStrings.add(folder_path) # Collect unique folder paths
                         
-                        # validate_test_case(mapped_test)
+                        # validate_test_case(mapped_test) # Assuming validation is desired
                         mapped_tests.append(mapped_test)
                         logger.debug(f"Test case {test_case.get('id')} added to mapped tests")
                         
                     except Exception as e:
                         logger.error(f"Error mapping test case {test_case.get('id')}: {str(e)}", exc_info=True)
-                        continue
+                        continue # Skip this test case
 
-                # Convert set back to list if needed
-                uniqueStrings = list(uniqueStrings)
+                # Convert set back to list if needed for folder creation
+                uniqueFolderPaths = list(uniqueStrings)
 
-                logger.info(f"Found {len(uniqueStrings)} unique folder paths for project {source_plan_id}_{source_suite_id}")
-                client.create_folder_structure(uniqueStrings, target_info['project_target_id'])
+                logger.info(f"Found {len(uniqueFolderPaths)} unique folder paths for scope entry (Plan: {source_plan_id}, Suite: {source_suite_id})")
+                # Create folder structure based on paths derived from all mapped test cases in the branch
+                client.create_folder_structure(uniqueFolderPaths, target_info['project_target_id'])
                 
-                # Save mapped tests to file
+                # Save mapped tests to file, named using plan and the specific source_suite_id from scope file
                 if mapped_tests:
                     logger.info(f"Saving {len(mapped_tests)} mapped tests to file")
                     folder_path = os.path.join(os.path.dirname(__file__), '../importFiles')
                     os.makedirs(folder_path, exist_ok=True)
                     
-                    output_file = os.path.join(folder_path, f'test_cases_{source_plan_id}_{source_suite_id}.json')
+                    # Use the original source_suite_id from the scope file for the output filename
+                    output_file = os.path.join(folder_path, f'test_cases_{source_plan_id}_{source_suite_id}.json') 
                     with open(output_file, 'w', encoding='utf-8') as f:
                         json.dump(mapped_tests, f, indent=2, ensure_ascii=False)
-                    logger.info(f"Successfully wrote mapped tests to {output_file}")
+                    logger.info(f"Successfully wrote mapped tests for scope entry ({source_plan_id}, {source_suite_id}) to {output_file}")
                 else:
-                    logger.warning(f"No test cases were mapped for project {source_plan_id}_{source_suite_id}")
+                    logger.warning(f"No test cases were mapped for scope entry (Plan: {source_plan_id}, Suite: {source_suite_id}) containing {len(effective_suite_ids)} effective suites.")
 
-                processed_projects.add(source_suite_id)
-                # If we processed child suites, add them to processed_projects as well
-                if effective_suite_ids != [source_suite_id]:
-                    processed_projects.update(effective_suite_ids)
-                    
-                logger.info(f"Successfully processed project {source_suite_id} and its child suites")
+
+                logger.info(f"Successfully processed scope entry (Plan: {source_plan_id}, Suite: {source_suite_id})")
                 
             except Exception as e:
-                logger.error(f"Error processing project {source_suite_id}: {str(e)}", exc_info=True)
-                continue
+                logger.error(f"Error processing scope entry (Plan: {source_plan_id}, Suite: {source_suite_id}): {str(e)}", exc_info=True)
                 
     except Exception as e:
         logger.error(f"Import process failed: {str(e)}", exc_info=True)
